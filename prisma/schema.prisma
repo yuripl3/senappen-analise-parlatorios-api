@@ -1,0 +1,151 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+/// User roles. Must stay in sync with `UserRole` in the frontend's types.ts.
+enum UserRole {
+  uploader
+  analyst
+  supervisor
+  admin
+}
+
+/// Record analysis lifecycle. Must stay in sync with `AnalysisStatus` in the frontend's types.ts.
+enum AnalysisStatus {
+  uploaded
+  processing_ai
+  clean
+  flagged_ai
+  under_review
+  confirmed_human
+  rejected_human
+  approved
+  rejected_supervisor
+}
+
+/// Retention policy applied to a record.
+enum RetentionStatus {
+  retention_standard
+  retention_extended
+  permanent_retention
+  archived
+}
+
+/// Type of visit. Display labels are mapped in the application layer.
+enum VisitorType {
+  ATENDIMENTO_JURIDICO
+  VISITA_SOCIAL_PRESENCIAL
+  VISITA_SOCIAL_VIRTUAL
+}
+
+/// Analyst review decision for a flagged record.
+enum AnalystDecision {
+  /// Analyst found issues — conversation should be escalated.
+  COM_ALTERACAO
+  /// No issues found — AI flag was a false positive.
+  SEM_ALTERACAO
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(uuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  roles        UserRole[]
+  active       Boolean    @default(true)
+  lastLogin    DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  uploadedRecords   Record[]   @relation("uploader")
+  archivedRecords   Record[]   @relation("archiver")
+  analystRecords    Record[]   @relation("analyst")
+  supervisorRecords Record[]   @relation("supervisor")
+  auditLogs         AuditLog[]
+}
+
+model Record {
+  id String @id @default(uuid())
+
+  // Detainee
+  detaineeName String
+  detaineeCode String?
+  detaineeCell String?
+
+  // Visitor
+  visitorName String
+  visitorType VisitorType
+
+  // Location
+  unit     String
+  vivencia String?
+
+  // Media
+  equipment      String
+  blobUrl        String?
+  mediaAvailable Boolean @default(false)
+
+  // Timestamps
+  recordedAt DateTime
+  uploadedAt DateTime @default(now())
+
+  // Uploader
+  uploadedById String
+  uploadedBy   User   @relation("uploader", fields: [uploadedById], references: [id])
+
+  // Status
+  analysisStatus  AnalysisStatus  @default(uploaded)
+  retentionStatus RetentionStatus @default(retention_standard)
+  aiScore         Float?
+
+  // Analyst decision
+  analystId            String?
+  analyst              User?            @relation("analyst", fields: [analystId], references: [id])
+  analystDecision      AnalystDecision?
+  analystJustification String?
+  analysisConfirmedAt  DateTime?
+
+  // Supervisor decision
+  supervisorId            String?
+  supervisor              User?     @relation("supervisor", fields: [supervisorId], references: [id])
+  supervisorDecision      String? // "approved" | "rejected_supervisor"
+  supervisorJustification String?
+  supervisorDecidedAt     DateTime?
+
+  // AI outputs (stored as JSON)
+  transcription     Json?
+  canonicalAnalysis Json?
+
+  // Archival
+  archivedAt   DateTime?
+  archivedById String?
+  archivedBy   User?     @relation("archiver", fields: [archivedById], references: [id])
+
+  auditLogs AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id             String          @id @default(uuid())
+  recordId       String?
+  record         Record?         @relation(fields: [recordId], references: [id])
+  userId         String
+  user           User            @relation(fields: [userId], references: [id])
+  action         String
+  previousStatus AnalysisStatus?
+  nextStatus     AnalysisStatus?
+  notes          String?
+  createdAt      DateTime        @default(now())
+}
