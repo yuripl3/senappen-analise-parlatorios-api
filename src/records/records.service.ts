@@ -1,11 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as path from 'path';
+import * as fs from 'fs/promises';
 import { PrismaService } from '@/database/prisma.service';
 import { AnalysisStatus } from '@/generated/prisma/enums';
 import { Prisma } from '@/generated/prisma/client';
 import { CreateRecordDto } from './dto/create-record.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { QueryRecordsDto } from './dto/query-records.dto';
+import { UploadRecordDto } from './dto/upload-record.dto';
 import { assertValidTransition } from '@/common/helpers/status-transition.helper';
 import { MOCK_RECORDS } from '@/mock/mock-data';
 import { mapMockRecord, mapMockRecordDetail, mapRecord, mapRecordDetail } from './mappers/record.mapper';
@@ -121,6 +124,48 @@ export class RecordsService {
         ...dto,
         recordedAt: new Date(dto.recordedAt),
         mediaAvailable: dto.mediaAvailable ?? false,
+        uploadedById,
+        analysisStatus: AnalysisStatus.uploaded,
+      },
+    });
+  }
+
+  /** Handles multipart/form-data upload: saves file locally, creates record. */
+  async upload(
+    file: Express.Multer.File | undefined,
+    dto: UploadRecordDto,
+    uploadedById: string,
+  ) {
+    // ── Mock mode: skip file save & DB, return a stub ──────────────────────
+    if (this.useMockData) {
+      return {
+        id: `MOCK-${Date.now()}`,
+        ...dto,
+        mediaAvailable: !!file,
+        blobUrl: file ? `storage/videos/mock-${Date.now()}${path.extname(file.originalname)}` : null,
+        analysisStatus: AnalysisStatus.uploaded,
+        uploadedAt: new Date().toISOString(),
+      };
+    }
+
+    // ── Real mode: persist file then record ────────────────────────────────
+    let blobUrl: string | null = null;
+    if (file) {
+      const storageDir = path.resolve(process.cwd(), 'storage', 'videos');
+      await fs.mkdir(storageDir, { recursive: true });
+      const ext = path.extname(file.originalname) || '.mp4';
+      const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+      const filePath = path.join(storageDir, filename);
+      await fs.writeFile(filePath, file.buffer);
+      blobUrl = `storage/videos/${filename}`;
+    }
+
+    return this.prisma.record.create({
+      data: {
+        ...dto,
+        recordedAt: new Date(dto.recordedAt),
+        mediaAvailable: !!file,
+        blobUrl,
         uploadedById,
         analysisStatus: AnalysisStatus.uploaded,
       },
