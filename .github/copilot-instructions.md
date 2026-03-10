@@ -3,7 +3,7 @@
 ## Project Overview
 NestJS 11 REST API for the Brazilian prison visitor-recording analysis system ("parlatorios" = visiting rooms). It will handle: video uploads, audio extraction, AI transcription, LLM-based analysis, and analyst/supervisor review workflows. A BullMQ/Redis job queue drives the async processing pipeline.
 
-The companion React frontend lives in `../analise-parlatorios/`. Its Copilot instructions are in `analise-parlatorios/.github/copilot-instructions.md`.
+The companion React frontend lives in `../senappen-analise-parlatorios/`. Its Copilot instructions are in `senappen-analise-parlatorios/.github/copilot-instructions.md`.
 
 ## Tech Stack
 | Layer | Technology |

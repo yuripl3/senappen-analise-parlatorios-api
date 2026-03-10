@@ -4,7 +4,7 @@ REST API for the Brazilian prison visitor-recording analysis system. Handles vid
 
 Built with **NestJS 11**, **PostgreSQL 16** (via Prisma 7), and a **BullMQ/Redis** async processing pipeline.
 
-The companion React frontend lives in `../analise-parlatorios/`.
+The companion React frontend lives in `../senappen-analise-parlatorios/`.
 
 ---
 
