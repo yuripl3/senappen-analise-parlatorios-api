@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as path from 'path';
-import * as fs from 'fs/promises';
 import { PrismaService } from '@/database/prisma.service';
 import { AnalysisStatus } from '@/generated/prisma/enums';
 import { Prisma } from '@/generated/prisma/client';
@@ -12,6 +11,7 @@ import { UploadRecordDto } from './dto/upload-record.dto';
 import { assertValidTransition } from '@/common/helpers/status-transition.helper';
 import { MOCK_RECORDS } from '@/mock/mock-data';
 import { mapMockRecord, mapMockRecordDetail, mapRecord, mapRecordDetail } from './mappers/record.mapper';
+import { StorageService } from '@/storage/storage.service';
 
 @Injectable()
 export class RecordsService {
@@ -20,6 +20,7 @@ export class RecordsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly storageService: StorageService,
   ) {
     this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
   }
@@ -130,7 +131,7 @@ export class RecordsService {
     });
   }
 
-  /** Handles multipart/form-data upload: saves file locally, creates record. */
+  /** Handles multipart/form-data upload: saves file via StorageService, creates record. */
   async upload(
     file: Express.Multer.File | undefined,
     dto: UploadRecordDto,
@@ -151,13 +152,11 @@ export class RecordsService {
     // ── Real mode: persist file then record ────────────────────────────────
     let blobUrl: string | null = null;
     if (file) {
-      const storageDir = path.resolve(process.cwd(), 'storage', 'videos');
-      await fs.mkdir(storageDir, { recursive: true });
-      const ext = path.extname(file.originalname) || '.mp4';
-      const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-      const filePath = path.join(storageDir, filename);
-      await fs.writeFile(filePath, file.buffer);
-      blobUrl = `storage/videos/${filename}`;
+      blobUrl = await this.storageService.store(
+        file.buffer,
+        file.originalname,
+        file.mimetype || 'video/mp4',
+      );
     }
 
     return this.prisma.record.create({
