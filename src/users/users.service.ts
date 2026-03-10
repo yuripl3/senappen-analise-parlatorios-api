@@ -1,13 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { createHash } from 'crypto';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@/database/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
-// TODO: replace with bcrypt once auth module is implemented
-function hashPassword(plain: string): string {
-  return createHash('sha256').update(plain).digest('hex');
-}
+const BCRYPT_ROUNDS = 12;
 
 const USER_SELECT = {
   id: true,
@@ -51,7 +48,7 @@ export class UsersService {
       data: {
         name: dto.name,
         email: dto.email,
-        passwordHash: hashPassword(dto.password),
+        passwordHash: await bcrypt.hash(dto.password, BCRYPT_ROUNDS),
         roles: dto.roles,
         active: dto.active ?? true,
       },

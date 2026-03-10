@@ -1,20 +1,23 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { RecordsService } from './records.service';
 import { CreateRecordDto } from './dto/create-record.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { QueryRecordsDto } from './dto/query-records.dto';
-
-// TODO: replace with real auth guard — actor ID will come from JWT payload
-const MOCK_ACTOR_ID = 'system';
+import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
+import { CurrentUser } from '@/auth/decorators/current-user.decorator';
+import type { JwtPayload } from '@/auth/decorators/current-user.decorator';
 
 @ApiTags('records')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('records')
 export class RecordsController {
   constructor(private readonly recordsService: RecordsService) {}
@@ -46,9 +49,8 @@ export class RecordsController {
     description: 'Creates a new visit record. Status starts at `uploaded`.',
   })
   @ApiCreatedResponse({ description: 'Created record.' })
-  create(@Body() dto: CreateRecordDto) {
-    // TODO: extract uploadedById from JWT
-    return this.recordsService.create(dto, MOCK_ACTOR_ID);
+  create(@Body() dto: CreateRecordDto, @CurrentUser() actor: JwtPayload) {
+    return this.recordsService.create(dto, actor.sub);
   }
 
   @Patch(':id/status')
@@ -61,8 +63,7 @@ export class RecordsController {
   })
   @ApiParam({ name: 'id', description: 'Record UUID' })
   @ApiOkResponse({ description: 'Updated record.' })
-  updateStatus(@Param('id') id: string, @Body() dto: UpdateStatusDto) {
-    // TODO: extract actorId from JWT
-    return this.recordsService.updateStatus(id, dto, MOCK_ACTOR_ID);
+  updateStatus(@Param('id') id: string, @Body() dto: UpdateStatusDto, @CurrentUser() actor: JwtPayload) {
+    return this.recordsService.updateStatus(id, dto, actor.sub);
   }
 }
