@@ -47,22 +47,24 @@ function computeDaysUntilDeletion(
 
 // ─── AuditLog mapper ─────────────────────────────────────────────────────────
 
-type RawAuditLog = MockAuditLog | {
-  id: string;
-  recordId: string | null;
-  userId: string;
-  user: { id: string; name: string; roles: string[] | readonly string[] };
-  action: string;
-  notes?: string | null;
-  createdAt: Date;
-};
+type RawAuditLog =
+  | MockAuditLog
+  | {
+      id: string;
+      recordId: string | null;
+      userId: string;
+      user: { id: string; name: string; roles: string[] | readonly string[] };
+      action: string;
+      notes?: string | null;
+      createdAt: Date;
+    };
 
 export function mapAuditLog(log: RawAuditLog) {
   return {
     id: log.id,
     recordId: log.recordId ?? undefined,
     user: log.user.name,
-    userRole: ((log.user.roles[0] as UserRole) ?? UserRole.analyst),
+    userRole: (log.user.roles[0] as UserRole) ?? UserRole.analyst,
     action: log.notes ? log.action + ' — ' + log.notes : log.action,
     timestamp: formatBrDate(log.createdAt),
   };
@@ -74,7 +76,6 @@ type RawRecord = {
   id: string;
   detaineeName: string;
   detaineeCode: string | null;
-  detaineeCell: string | null;
   visitorName: string;
   visitorType: VisitorType;
   unit: string;
@@ -103,7 +104,6 @@ export function mapRecord(r: RawRecord) {
     detainee: {
       id: r.detaineeCode ?? r.id,
       name: r.detaineeName,
-      cell: r.detaineeCell ?? undefined,
     },
     visitor: {
       name: r.visitorName,
@@ -121,7 +121,9 @@ export function mapRecord(r: RawRecord) {
     daysUntilDeletion: computeDaysUntilDeletion(r.recordedAt, r.retentionStatus),
     mediaAvailable: r.mediaAvailable,
     archivedAt: r.archivedAt ? formatBrDateOnly(r.archivedAt) : undefined,
-    archivedBy: r.archivedBy ? `${r.archivedBy.name} (${r.archivedBy.roles?.[0] ?? 'staff'})` : undefined,
+    archivedBy: r.archivedBy
+      ? `${r.archivedBy.name} (${r.archivedBy.roles?.[0] ?? 'staff'})`
+      : undefined,
   };
 }
 

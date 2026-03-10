@@ -26,12 +26,6 @@ export class UploadRecordDto {
   @MaxLength(50)
   detaineeCode?: string;
 
-  @ApiPropertyOptional({ description: 'Cell / housing unit.', example: 'B2-14' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  detaineeCell?: string;
-
   @ApiProperty({ description: 'Full name of the visitor.', example: 'Maria Souza' })
   @IsString()
   @IsNotEmpty()

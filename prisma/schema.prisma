@@ -67,10 +67,10 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  uploadedRecords   Record[]   @relation("uploader")
-  archivedRecords   Record[]   @relation("archiver")
-  analystRecords    Record[]   @relation("analyst")
-  supervisorRecords Record[]   @relation("supervisor")
+  uploadedRecords   Record[]          @relation("uploader")
+  archivedRecords   Record[]          @relation("archiver")
+  analystRecords    Record[]          @relation("analyst")
+  supervisorRecords Record[]          @relation("supervisor")
   auditLogs         AuditLog[]
   retentionPolicies RetentionPolicy[]
 }
@@ -81,7 +81,6 @@ model Record {
   // Detainee
   detaineeName String
   detaineeCode String?
-  detaineeCell String?
 
   // Visitor
   visitorName String

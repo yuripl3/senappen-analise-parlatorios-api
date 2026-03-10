@@ -8,7 +8,14 @@ import { MOCK_USERS } from '@/mock/mock-data';
 
 const BCRYPT_ROUNDS = 12;
 
-function mapUser(u: { id: string; name: string; email: string; roles: string[]; active: boolean; lastLogin: Date | null }) {
+function mapUser(u: {
+  id: string;
+  name: string;
+  email: string;
+  roles: string[];
+  active: boolean;
+  lastLogin: Date | null;
+}) {
   const pad = (n: number) => String(n).padStart(2, '0');
   const formatDate = (d: Date) =>
     `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -50,10 +57,12 @@ export class UsersService {
     if (this.useMockData) {
       return Promise.resolve(MOCK_USERS.map(mapUser));
     }
-    return this.prisma.user.findMany({
-      select: USER_SELECT,
-      orderBy: { name: 'asc' },
-    }).then((users) => users.map(mapUser));
+    return this.prisma.user
+      .findMany({
+        select: USER_SELECT,
+        orderBy: { name: 'asc' },
+      })
+      .then((users) => users.map(mapUser));
   }
 
   async findOne(id: string) {

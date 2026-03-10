@@ -76,8 +76,21 @@ async function main() {
   for (const user of DEMO_USERS) {
     await prisma.user.upsert({
       where: { id: user.id },
-      update: { name: user.name, email: user.email, roles: user.roles, active: user.active, passwordHash },
-      create: { id: user.id, name: user.name, email: user.email, roles: user.roles, active: user.active, passwordHash },
+      update: {
+        name: user.name,
+        email: user.email,
+        roles: user.roles,
+        active: user.active,
+        passwordHash,
+      },
+      create: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        roles: user.roles,
+        active: user.active,
+        passwordHash,
+      },
     });
     console.log(`  ✓ ${user.email} (${user.roles.join(', ')})`);
   }

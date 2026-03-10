@@ -36,14 +36,10 @@ export class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    this.worker = new Worker<TranscribeJobData>(
-      TRANSCRIPTION_QUEUE,
-      (job) => this.process(job),
-      {
-        connection: createRedisConnection(),
-        concurrency: this.config.get<number>('WORKER_CONCURRENCY') ?? 5,
-      },
-    );
+    this.worker = new Worker<TranscribeJobData>(TRANSCRIPTION_QUEUE, (job) => this.process(job), {
+      connection: createRedisConnection(),
+      concurrency: Number(this.config.get('WORKER_CONCURRENCY')) || 5,
+    });
 
     this.worker.on('completed', (job) =>
       this.logger.log(`Job ${job.id} completed (record ${job.data.recordId})`),
@@ -79,7 +75,9 @@ export class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
         audioBuffer = await this.extractAudio(blobUrl);
         this.logger.log(`Extracted ${audioBuffer.length} bytes of audio from ${blobUrl}`);
       } catch (err) {
-        this.logger.warn(`Audio extraction failed: ${(err as Error).message} — proceeding with null buffer (mock AI)`);
+        this.logger.warn(
+          `Audio extraction failed: ${(err as Error).message} — proceeding with null buffer (mock AI)`,
+        );
       }
     }
 
@@ -90,9 +88,7 @@ export class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
     );
 
     // 4. Determine next status (>= 60 → flagged_ai, else clean)
-    const nextStatus = result.aiScore >= 60
-      ? AnalysisStatus.flagged_ai
-      : AnalysisStatus.clean;
+    const nextStatus = result.aiScore >= 60 ? AnalysisStatus.flagged_ai : AnalysisStatus.clean;
 
     // 5. Persist result and transition status
     await this.prisma.record.update({
@@ -131,9 +127,7 @@ export class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
    */
   private extractAudio(blobUrl: string): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const inputPath = path.isAbsolute(blobUrl)
-        ? blobUrl
-        : path.resolve(process.cwd(), blobUrl);
+      const inputPath = path.isAbsolute(blobUrl) ? blobUrl : path.resolve(process.cwd(), blobUrl);
 
       const tmpFile = path.join(os.tmpdir(), `senappen-audio-${Date.now()}.mp3`);
 
