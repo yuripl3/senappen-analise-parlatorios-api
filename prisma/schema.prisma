@@ -72,6 +72,7 @@ model User {
   analystRecords    Record[]   @relation("analyst")
   supervisorRecords Record[]   @relation("supervisor")
   auditLogs         AuditLog[]
+  retentionPolicies RetentionPolicy[]
 }
 
 model Record {
@@ -148,4 +149,14 @@ model AuditLog {
   nextStatus     AnalysisStatus?
   notes          String?
   createdAt      DateTime        @default(now())
+}
+
+/// Singleton retention policy settings. Always upsert with id = "global".
+model RetentionPolicy {
+  id                    String   @id @default("global")
+  standardRetentionDays Int      @default(30)
+  extendedRetentionDays Int      @default(90)
+  updatedAt             DateTime @updatedAt
+  updatedById           String?
+  updatedBy             User?    @relation(fields: [updatedById], references: [id])
 }

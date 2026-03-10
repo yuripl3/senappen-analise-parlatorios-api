@@ -7,6 +7,7 @@ import { RecordsModule } from './records/records.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { WorkerModule } from './worker/worker.module';
+import { RetentionModule } from './retention/retention.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { WorkerModule } from './worker/worker.module';
     RecordsModule,
     UsersModule,
     WorkerModule,
+    RetentionModule,
   ],
   controllers: [AppController],
 })
