@@ -125,6 +125,7 @@ model Record {
   // AI outputs (stored as JSON)
   transcription     Json?
   canonicalAnalysis Json?
+  userComments      Json?
 
   // Archival
   archivedAt   DateTime?

@@ -301,4 +301,23 @@ export class RecordsService {
 
     return logs;
   }
+
+  // ── User comments (per-line) ──────────────────────────────────────────────
+
+  async updateUserComments(id: string, comments: unknown[]) {
+    if (this.useMockData) {
+      return { id, userComments: comments };
+    }
+
+    const exists = await this.prisma.record.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) throw new NotFoundException(`Record ${id} not found`);
+
+    const updated = await this.prisma.record.update({
+      where: { id },
+      data: { userComments: comments as any },
+      select: { id: true, userComments: true },
+    });
+
+    return updated;
+  }
 }

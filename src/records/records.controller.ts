@@ -26,6 +26,7 @@ import { UpdateStatusDto } from './dto/update-status.dto';
 import { QueryRecordsDto } from './dto/query-records.dto';
 import { UploadRecordDto } from './dto/upload-record.dto';
 import { BulkActionDto } from './dto/bulk-action.dto';
+import { UpdateUserCommentsDto } from './dto/update-user-comments.dto';
 import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
 import { CurrentUser } from '@/auth/decorators/current-user.decorator';
 import type { JwtPayload } from '@/auth/decorators/current-user.decorator';
@@ -145,5 +146,19 @@ export class RecordsController {
   @ApiOkResponse({ description: 'Restored record.' })
   restore(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.recordsService.restore(id, actor.sub);
+  }
+
+  @Patch(':id/user-comments')
+  @ApiOperation({
+    summary: 'Update per-line user comments on a record\'s transcription',
+    description: 'Stores user-authored per-line comments/tags alongside the AI transcription.',
+  })
+  @ApiParam({ name: 'id', description: 'Record UUID' })
+  @ApiOkResponse({ description: 'Updated user comments.' })
+  updateUserComments(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserCommentsDto,
+  ) {
+    return this.recordsService.updateUserComments(id, dto.comments);
   }
 }

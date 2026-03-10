@@ -131,6 +131,7 @@ export function mapRecord(r: RawRecord) {
 
 type RawRecordWithDetail = RawRecord & {
   auditLogs: RawAuditLog[];
+  userComments?: unknown;
 };
 
 export function mapRecordDetail(r: RawRecordWithDetail) {
@@ -151,6 +152,7 @@ export function mapRecordDetail(r: RawRecordWithDetail) {
     canonicalLines: txn?.canonicalLines ?? null,
     flaggedSegments: txn?.flaggedSegments ?? null,
     canonicalAnalysis: r.canonicalAnalysis ?? null,
+    userComments: r.userComments ?? null,
   };
 }
 
