@@ -63,7 +63,11 @@ export class RecordsController {
   })
   @ApiParam({ name: 'id', description: 'Record UUID' })
   @ApiOkResponse({ description: 'Updated record.' })
-  updateStatus(@Param('id') id: string, @Body() dto: UpdateStatusDto, @CurrentUser() actor: JwtPayload) {
+  updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateStatusDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
     return this.recordsService.updateStatus(id, dto, actor.sub);
   }
 }
