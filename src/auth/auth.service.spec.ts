@@ -71,9 +71,7 @@ describe('AuthService', () => {
   describe('login', () => {
     it('should return tokens and user data for valid credentials', async () => {
       prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
-      jwt.sign
-        .mockReturnValueOnce('access-token')
-        .mockReturnValueOnce('refresh-token');
+      jwt.sign.mockReturnValueOnce('access-token').mockReturnValueOnce('refresh-token');
 
       const result = await service.login({
         email: 'test@example.com',
@@ -104,9 +102,9 @@ describe('AuthService', () => {
     it('should throw UnauthorizedException for non-existent user', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.login({ email: 'nobody@example.com', password: 'any' }),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.login({ email: 'nobody@example.com', password: 'any' })).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('should throw UnauthorizedException for inactive user', async () => {
@@ -160,9 +158,7 @@ describe('AuthService', () => {
     it('should return new tokens for valid refresh token', async () => {
       jwt.verify.mockReturnValue(validRefreshPayload);
       prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
-      jwt.sign
-        .mockReturnValueOnce('new-access')
-        .mockReturnValueOnce('new-refresh');
+      jwt.sign.mockReturnValueOnce('new-access').mockReturnValueOnce('new-refresh');
 
       const result = await service.refresh('valid-refresh-token');
 
@@ -175,35 +171,27 @@ describe('AuthService', () => {
         throw new Error('invalid');
       });
 
-      await expect(service.refresh('bad-token')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(service.refresh('bad-token')).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException for non-refresh token type', async () => {
       jwt.verify.mockReturnValue({ ...validRefreshPayload, type: 'access' });
 
-      await expect(service.refresh('access-token')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(service.refresh('access-token')).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw NotFoundException for inactive user', async () => {
       jwt.verify.mockReturnValue(validRefreshPayload);
       prisma.user.findUnique.mockResolvedValue(INACTIVE_USER);
 
-      await expect(service.refresh('valid-token')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.refresh('valid-token')).rejects.toThrow(NotFoundException);
     });
 
     it('should throw NotFoundException for non-existent user', async () => {
       jwt.verify.mockReturnValue(validRefreshPayload);
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.refresh('valid-token')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.refresh('valid-token')).rejects.toThrow(NotFoundException);
     });
   });
 });

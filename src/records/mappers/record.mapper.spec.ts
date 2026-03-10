@@ -206,9 +206,7 @@ describe('record.mapper', () => {
         generatedAt: '2025-01-15',
         sections: [],
       });
-      expect(result.userComments).toEqual([
-        { lineIndex: 0, tagged: true, comment: 'Check this' },
-      ]);
+      expect(result.userComments).toEqual([{ lineIndex: 0, tagged: true, comment: 'Check this' }]);
     });
 
     it('should return null for transcription fields when transcription is null', () => {

@@ -23,12 +23,9 @@ describe('status-transition.helper', () => {
       ['confirmed_human', 'rejected_supervisor'],
     ];
 
-    it.each(validCases)(
-      'should allow %s → %s',
-      (current, next) => {
-        expect(isValidTransition(current as any, next as any)).toBe(true);
-      },
-    );
+    it.each(validCases)('should allow %s → %s', (current, next) => {
+      expect(isValidTransition(current as any, next as any)).toBe(true);
+    });
 
     const invalidCases: [AS, AS][] = [
       ['uploaded', 'clean'],
@@ -41,39 +38,37 @@ describe('status-transition.helper', () => {
       ['approved', 'rejected_supervisor'],
     ];
 
-    it.each(invalidCases)(
-      'should reject %s → %s',
-      (current, next) => {
-        expect(isValidTransition(current as any, next as any)).toBe(false);
-      },
-    );
+    it.each(invalidCases)('should reject %s → %s', (current, next) => {
+      expect(isValidTransition(current as any, next as any)).toBe(false);
+    });
 
-    it.each(TERMINAL)(
-      'should reject any transition FROM terminal state %s',
-      (terminal) => {
-        const allStatuses: AS[] = [
-          'uploaded', 'processing_ai', 'clean', 'flagged_ai',
-          'under_review', 'confirmed_human', 'rejected_human',
-          'approved', 'rejected_supervisor',
-        ];
-        for (const s of allStatuses) {
-          expect(isValidTransition(terminal as any, s as any)).toBe(false);
-        }
-      },
-    );
+    it.each(TERMINAL)('should reject any transition FROM terminal state %s', (terminal) => {
+      const allStatuses: AS[] = [
+        'uploaded',
+        'processing_ai',
+        'clean',
+        'flagged_ai',
+        'under_review',
+        'confirmed_human',
+        'rejected_human',
+        'approved',
+        'rejected_supervisor',
+      ];
+      for (const s of allStatuses) {
+        expect(isValidTransition(terminal as any, s as any)).toBe(false);
+      }
+    });
   });
 
   describe('assertValidTransition', () => {
     it('should not throw for valid transitions', () => {
-      expect(() =>
-        assertValidTransition('uploaded' as any, 'processing_ai' as any),
-      ).not.toThrow();
+      expect(() => assertValidTransition('uploaded' as any, 'processing_ai' as any)).not.toThrow();
     });
 
     it('should throw BadRequestException for invalid transitions', () => {
-      expect(() =>
-        assertValidTransition('uploaded' as any, 'approved' as any),
-      ).toThrow(BadRequestException);
+      expect(() => assertValidTransition('uploaded' as any, 'approved' as any)).toThrow(
+        BadRequestException,
+      );
     });
 
     it('should include current and next status in error message', () => {

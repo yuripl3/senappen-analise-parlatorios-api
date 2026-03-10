@@ -47,5 +47,4 @@ export const envValidationSchema = Joi.object({
   // ── Worker ────────────────────────────────────────────────────────────────
 
   WORKER_CONCURRENCY: Joi.number().integer().min(1).max(50).default(5),
-})
-  .options({ allowUnknown: true }); // allow other env vars (PATH, HOME, etc.)
+}).options({ allowUnknown: true }); // allow other env vars (PATH, HOME, etc.)
