@@ -1,10 +1,27 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@/database/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { MOCK_USERS } from '@/mock/mock-data';
 
 const BCRYPT_ROUNDS = 12;
+
+function mapUser(u: { id: string; name: string; email: string; roles: string[]; active: boolean; lastLogin: Date | null }) {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const formatDate = (d: Date) =>
+    `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    roles: u.roles,
+    active: u.active,
+    lastLogin: u.lastLogin ? formatDate(u.lastLogin) : 'Nunca',
+  };
+}
 
 const USER_SELECT = {
   id: true,
@@ -20,22 +37,42 @@ const USER_SELECT = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly useMockData: boolean;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
+    this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
+  }
 
   findAll() {
+    if (this.useMockData) {
+      return Promise.resolve(MOCK_USERS.map(mapUser));
+    }
     return this.prisma.user.findMany({
       select: USER_SELECT,
       orderBy: { name: 'asc' },
-    });
+    }).then((users) => users.map(mapUser));
   }
 
   async findOne(id: string) {
+    if (this.useMockData) {
+      const user = MOCK_USERS.find((u) => u.id === id);
+      if (!user) throw new NotFoundException(`User ${id} not found`);
+      return mapUser(user);
+    }
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: USER_SELECT,
     });
     if (!user) throw new NotFoundException(`User ${id} not found`);
-    return user;
+    return mapUser(user);
+  }
+
+  async findByEmail(email: string) {
+    // Always hits DB — needed by AuthService for real password validation
+    return this.prisma.user.findUnique({ where: { email } });
   }
 
   async create(dto: CreateUserDto) {

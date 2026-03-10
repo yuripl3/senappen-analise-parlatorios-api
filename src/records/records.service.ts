@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@/database/prisma.service';
 import { AnalysisStatus } from '@/generated/prisma/enums';
 import { Prisma } from '@/generated/prisma/client';
@@ -6,10 +7,19 @@ import { CreateRecordDto } from './dto/create-record.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { QueryRecordsDto } from './dto/query-records.dto';
 import { assertValidTransition } from '@/common/helpers/status-transition.helper';
+import { MOCK_RECORDS } from '@/mock/mock-data';
+import { mapMockRecord, mapMockRecordDetail, mapRecord, mapRecordDetail } from './mappers/record.mapper';
 
 @Injectable()
 export class RecordsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly useMockData: boolean;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
+    this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
+  }
 
   async findAll(query: QueryRecordsDto) {
     const {
@@ -25,6 +35,25 @@ export class RecordsService {
     } = query;
     const skip = (page - 1) * limit;
 
+    // ── Mock mode ──────────────────────────────────────────────────────────
+    if (this.useMockData) {
+      let items = MOCK_RECORDS.filter((r) => {
+        if (status && r.analysisStatus !== status) return false;
+        if (retentionStatus && r.retentionStatus !== retentionStatus) return false;
+        if (unit && !r.unit.toLowerCase().includes(unit.toLowerCase())) return false;
+        if (from && r.recordedAt < new Date(from)) return false;
+        if (to && r.recordedAt > new Date(to)) return false;
+        return true;
+      });
+      const total = items.length;
+      items = items.slice(skip, skip + limit);
+      return {
+        data: items.map(mapMockRecord),
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      };
+    }
+
+    // ── DB mode ────────────────────────────────────────────────────────────
     const where: Prisma.RecordWhereInput = {
       ...(status && { analysisStatus: status }),
       ...(retentionStatus && { retentionStatus }),
@@ -48,21 +77,33 @@ export class RecordsService {
         skip,
         take: limit,
         orderBy: { recordedAt: 'desc' },
-        include: { uploadedBy: { select: { id: true, name: true } } },
+        include: {
+          uploadedBy: { select: { id: true, name: true } },
+          archivedBy: { select: { id: true, name: true, roles: true } },
+        },
       }),
     ]);
 
     return {
-      data: items,
+      data: items.map((r) => mapRecord(r as Parameters<typeof mapRecord>[0])),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
 
   async findOne(id: string) {
+    // ── Mock mode ──────────────────────────────────────────────────────────
+    if (this.useMockData) {
+      const record = MOCK_RECORDS.find((r) => r.id === id);
+      if (!record) throw new NotFoundException(`Record ${id} not found`);
+      return mapMockRecordDetail(record);
+    }
+
+    // ── DB mode ────────────────────────────────────────────────────────────
     const record = await this.prisma.record.findUnique({
       where: { id },
       include: {
         uploadedBy: { select: { id: true, name: true } },
+        archivedBy: { select: { id: true, name: true, roles: true } },
         auditLogs: {
           orderBy: { createdAt: 'asc' },
           include: { user: { select: { id: true, name: true, roles: true } } },
@@ -71,7 +112,7 @@ export class RecordsService {
     });
 
     if (!record) throw new NotFoundException(`Record ${id} not found`);
-    return record;
+    return mapRecordDetail(record as Parameters<typeof mapRecordDetail>[0]);
   }
 
   create(dto: CreateRecordDto, uploadedById: string) {
