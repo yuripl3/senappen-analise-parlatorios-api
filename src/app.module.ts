@@ -6,6 +6,7 @@ import { PrismaModule } from './database/prisma.module';
 import { RecordsModule } from './records/records.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { WorkerModule } from './worker/worker.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AuthModule } from './auth/auth.module';
     AuthModule,
     RecordsModule,
     UsersModule,
+    WorkerModule,
   ],
   controllers: [AppController],
 })

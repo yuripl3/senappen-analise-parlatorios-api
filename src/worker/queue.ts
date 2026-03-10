@@ -1,6 +1,18 @@
 import IORedis from 'ioredis';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Queue name ───────────────────────────────────────────────────────────────
+export const TRANSCRIPTION_QUEUE = 'transcription';
+
+// ─── Job payloads ─────────────────────────────────────────────────────────────
+
+export interface TranscribeJobData {
+  /** Record UUID to process */
+  recordId: string;
+  /** Path or URL to the stored video/audio file */
+  blobUrl: string | null;
+}
+
+// ─── Redis connection factory ─────────────────────────────────────────────────
 
 /**
  * Creates an IORedis connection suitable for BullMQ.

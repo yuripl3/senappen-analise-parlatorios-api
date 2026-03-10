@@ -12,6 +12,7 @@ import { assertValidTransition } from '@/common/helpers/status-transition.helper
 import { MOCK_RECORDS } from '@/mock/mock-data';
 import { mapMockRecord, mapMockRecordDetail, mapRecord, mapRecordDetail } from './mappers/record.mapper';
 import { StorageService } from '@/storage/storage.service';
+import { QueueService } from '@/worker/queue.service';
 
 @Injectable()
 export class RecordsService {
@@ -21,6 +22,7 @@ export class RecordsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly storageService: StorageService,
+    private readonly queueService: QueueService,
   ) {
     this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
   }
@@ -168,6 +170,10 @@ export class RecordsService {
         uploadedById,
         analysisStatus: AnalysisStatus.uploaded,
       },
+    }).then(async (record) => {
+      // Enqueue transcription job (fire-and-forget)
+      await this.queueService.enqueueTranscription({ recordId: record.id, blobUrl });
+      return record;
     });
   }
 

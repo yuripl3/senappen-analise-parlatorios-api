@@ -792,3 +792,9 @@ export const MOCK_RECORDS: MockRecord[] = [
     updatedAt: new Date('2026-02-17T14:00:00'),
   },
 ];
+
+// ─── Mock AI result (used by AiService when USE_MOCK_AI=true) ─────────────────
+export const MOCK_TRANSCRIPTION_RESULT = {
+  ...TRANSCRIPTION_REC00129,
+  canonicalAnalysis: CANONICAL_ANALYSIS_REC00129 as Record<string, unknown>,
+};
