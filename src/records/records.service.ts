@@ -2,12 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as path from 'path';
 import { PrismaService } from '@/database/prisma.service';
-import { AnalysisStatus } from '@/generated/prisma/enums';
+import { AnalysisStatus, RetentionStatus } from '@/generated/prisma/enums';
 import { Prisma } from '@/generated/prisma/client';
 import { CreateRecordDto } from './dto/create-record.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { QueryRecordsDto } from './dto/query-records.dto';
 import { UploadRecordDto } from './dto/upload-record.dto';
+import { BulkActionDto, BulkActionType } from './dto/bulk-action.dto';
 import { assertValidTransition } from '@/common/helpers/status-transition.helper';
 import { MOCK_RECORDS } from '@/mock/mock-data';
 import { mapMockRecord, mapMockRecordDetail, mapRecord, mapRecordDetail } from './mappers/record.mapper';
@@ -218,5 +219,86 @@ export class RecordsService {
     ]);
 
     return updated;
+  }
+
+  // ── Archive / Restore ──────────────────────────────────────────────────────
+
+  async archive(id: string, actorId: string) {
+    const record = await this.prisma.record.findUnique({ where: { id } });
+    if (!record) throw new NotFoundException(`Record ${id} not found`);
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.record.update({
+        where: { id },
+        data: {
+          retentionStatus: RetentionStatus.archived,
+          archivedAt: new Date(),
+          archivedById: actorId,
+        },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          recordId: id,
+          userId: actorId,
+          action: 'archive',
+          notes: 'Record archived',
+        },
+      }),
+    ]);
+
+    return updated;
+  }
+
+  async restore(id: string, actorId: string) {
+    const record = await this.prisma.record.findUnique({ where: { id } });
+    if (!record) throw new NotFoundException(`Record ${id} not found`);
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.record.update({
+        where: { id },
+        data: {
+          retentionStatus: RetentionStatus.retention_standard,
+          archivedAt: null,
+          archivedById: null,
+        },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          recordId: id,
+          userId: actorId,
+          action: 'restore',
+          notes: 'Record restored from archive',
+        },
+      }),
+    ]);
+
+    return updated;
+  }
+
+  async bulkAction(dto: BulkActionDto, actorId: string) {
+    const fn = dto.action === BulkActionType.archive
+      ? (id: string) => this.archive(id, actorId)
+      : (id: string) => this.restore(id, actorId);
+
+    const results = await Promise.allSettled(dto.ids.map(fn));
+    const succeeded = dto.ids.filter((_, i) => results[i].status === 'fulfilled');
+    const failed = dto.ids.filter((_, i) => results[i].status === 'rejected');
+
+    return { succeeded, failed };
+  }
+
+  // ── Audit log ──────────────────────────────────────────────────────────────
+
+  async getAudit(id: string) {
+    const exists = await this.prisma.record.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) throw new NotFoundException(`Record ${id} not found`);
+
+    const logs = await this.prisma.auditLog.findMany({
+      where: { recordId: id },
+      orderBy: { createdAt: 'asc' },
+      include: { user: { select: { id: true, name: true, roles: true } } },
+    });
+
+    return logs;
   }
 }

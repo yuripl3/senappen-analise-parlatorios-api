@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiCreatedResponse,
   ApiOkResponse,
@@ -27,6 +27,25 @@ export class UsersController {
   @ApiOkResponse({ description: 'List of users (passwordHash excluded).' })
   findAll() {
     return this.usersService.findAll();
+  }
+
+  @Get('audit-logs')
+  @Roles(UserRole.admin)
+  @ApiOperation({
+    summary: 'Global audit log',
+    description: 'Returns paginated global audit log entries. Admin only.',
+  })
+  @ApiOkResponse({ description: 'Paginated audit log.' })
+  findAllAuditLogs(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.usersService.findAllAuditLogs({
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      search,
+    });
   }
 
   @Get(':id')

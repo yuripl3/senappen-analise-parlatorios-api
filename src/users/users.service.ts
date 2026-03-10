@@ -109,4 +109,49 @@ export class UsersService {
       select: USER_SELECT,
     });
   }
+
+  async findAllAuditLogs(params: { page?: number; limit?: number; search?: string }) {
+    const { page = 1, limit = 50, search } = params;
+    const skip = (page - 1) * limit;
+
+    if (this.useMockData) {
+      return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+    }
+
+    const where = search
+      ? {
+          OR: [
+            { action: { contains: search, mode: 'insensitive' as const } },
+            { user: { name: { contains: search, mode: 'insensitive' as const } } },
+          ],
+        }
+      : undefined;
+
+    const [total, logs] = await this.prisma.$transaction([
+      this.prisma.auditLog.count({ where }),
+      this.prisma.auditLog.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: { id: true, name: true, roles: true } } },
+      }),
+    ]);
+
+    return {
+      data: logs.map((log) => ({
+        id: log.id,
+        recordId: log.recordId ?? undefined,
+        userId: log.userId,
+        user: log.user.name,
+        userRole: log.user.roles[0] ?? 'unknown',
+        action: log.action,
+        previousStatus: log.previousStatus,
+        nextStatus: log.nextStatus,
+        notes: log.notes,
+        timestamp: log.createdAt.toISOString(),
+      })),
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
 }

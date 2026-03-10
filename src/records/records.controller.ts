@@ -25,6 +25,7 @@ import { CreateRecordDto } from './dto/create-record.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { QueryRecordsDto } from './dto/query-records.dto';
 import { UploadRecordDto } from './dto/upload-record.dto';
+import { BulkActionDto } from './dto/bulk-action.dto';
 import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
 import { CurrentUser } from '@/auth/decorators/current-user.decorator';
 import type { JwtPayload } from '@/auth/decorators/current-user.decorator';
@@ -57,6 +58,17 @@ export class RecordsController {
     return this.recordsService.findOne(id);
   }
 
+  @Get(':id/audit')
+  @ApiOperation({
+    summary: 'Get audit log for a record',
+    description: 'Returns the full audit log history for a specific record.',
+  })
+  @ApiParam({ name: 'id', description: 'Record UUID' })
+  @ApiOkResponse({ description: 'Audit log entries.' })
+  getAudit(@Param('id') id: string) {
+    return this.recordsService.getAudit(id);
+  }
+
   @Post()
   @ApiOperation({
     summary: 'Create a record (JSON)',
@@ -85,6 +97,16 @@ export class RecordsController {
     return this.recordsService.upload(file, dto, actor.sub);
   }
 
+  @Post('bulk-action')
+  @ApiOperation({
+    summary: 'Bulk archive or restore records',
+    description: 'Performs an archive or restore action on multiple records at once.',
+  })
+  @ApiOkResponse({ description: 'Result with succeeded and failed IDs.' })
+  bulkAction(@Body() dto: BulkActionDto, @CurrentUser() actor: JwtPayload) {
+    return this.recordsService.bulkAction(dto, actor.sub);
+  }
+
   @Patch(':id/status')
   @ApiOperation({
     summary: 'Transition record status',
@@ -101,5 +123,27 @@ export class RecordsController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.recordsService.updateStatus(id, dto, actor.sub);
+  }
+
+  @Patch(':id/archive')
+  @ApiOperation({
+    summary: 'Archive a record',
+    description: 'Sets retentionStatus to `archived`, records archivedAt and archivedById.',
+  })
+  @ApiParam({ name: 'id', description: 'Record UUID' })
+  @ApiOkResponse({ description: 'Archived record.' })
+  archive(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
+    return this.recordsService.archive(id, actor.sub);
+  }
+
+  @Patch(':id/restore')
+  @ApiOperation({
+    summary: 'Restore an archived record',
+    description: 'Resets retentionStatus to `retention_standard` and clears archive fields.',
+  })
+  @ApiParam({ name: 'id', description: 'Record UUID' })
+  @ApiOkResponse({ description: 'Restored record.' })
+  restore(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
+    return this.recordsService.restore(id, actor.sub);
   }
 }
