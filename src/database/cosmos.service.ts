@@ -28,8 +28,15 @@ export class CosmosService implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly config: ConfigService) {}
 
   async onModuleInit() {
-    const endpoint = this.config.getOrThrow<string>('COSMOS_ENDPOINT');
-    const key = this.config.getOrThrow<string>('COSMOS_KEY');
+    const useMock = this.config.get<string>('USE_MOCK_DATA') === 'true';
+    const endpoint = this.config.get<string>('COSMOS_ENDPOINT');
+    const key = this.config.get<string>('COSMOS_KEY');
+
+    if (useMock || !endpoint || !key) {
+      this.logger.log('Cosmos DB: skipped (mock mode or missing credentials)');
+      return;
+    }
+
     const databaseId = this.config.get<string>('COSMOS_DATABASE') || 'senappen';
 
     this.client = new CosmosClient({ endpoint, key });
