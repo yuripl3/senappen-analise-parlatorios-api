@@ -2,14 +2,22 @@ import {
   Body,
   Controller,
   Get,
+  Header,
+  NotFoundException,
   Param,
   Patch,
   Post,
   Query,
+  Req,
+  Res,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiConsumes,
@@ -57,6 +65,60 @@ export class RecordsController {
   @ApiOkResponse({ description: 'Record detail.' })
   findOne(@Param('id') id: string) {
     return this.recordsService.findOne(id);
+  }
+
+  @Get(':id/stream')
+  @ApiOperation({
+    summary: 'Stream the video file for a record',
+    description:
+      'Returns the video binary for the given record. Supports Range requests for seeking.',
+  })
+  @ApiParam({ name: 'id', description: 'Record UUID' })
+  @ApiOkResponse({ description: 'Video binary stream.' })
+  async streamVideo(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const blobUrl = await this.recordsService.getBlobUrl(id);
+    if (!blobUrl) throw new NotFoundException('Video not available for this record');
+
+    // For local storage, resolve the path relative to cwd
+    if (!blobUrl.startsWith('http')) {
+      const filePath = path.resolve(process.cwd(), blobUrl);
+      if (!fs.existsSync(filePath)) {
+        throw new NotFoundException('Video file not found on disk');
+      }
+
+      const stat = fs.statSync(filePath);
+      const fileSize = stat.size;
+      const range = req.headers.range;
+
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
+
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': 'video/mp4',
+        });
+        fs.createReadStream(filePath, { start, end }).pipe(res);
+      } else {
+        res.writeHead(200, {
+          'Content-Length': fileSize,
+          'Content-Type': 'video/mp4',
+        });
+        fs.createReadStream(filePath).pipe(res);
+      }
+      return;
+    }
+
+    // For Azure URLs, redirect
+    res.redirect(blobUrl);
   }
 
   @Get(':id/audit')

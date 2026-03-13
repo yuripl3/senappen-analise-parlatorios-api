@@ -120,6 +120,7 @@ export function mapRecord(r: RawRecord) {
     aiScore: r.aiScore ?? undefined,
     daysUntilDeletion: computeDaysUntilDeletion(r.recordedAt, r.retentionStatus),
     mediaAvailable: r.mediaAvailable,
+    videoUrl: r.blobUrl ? `/records/${r.id}/stream` : undefined,
     archivedAt: r.archivedAt ? formatBrDateOnly(r.archivedAt) : undefined,
     archivedBy: r.archivedBy
       ? `${r.archivedBy.name} (${r.archivedBy.roles?.[0] ?? 'staff'})`

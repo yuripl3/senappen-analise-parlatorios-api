@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import { PrismaService } from '@/database/prisma.service';
-import { AnalysisStatus, RetentionStatus } from '@/generated/prisma/enums';
+import { AnalysisStatus, RetentionStatus, VisitorType } from '@/generated/prisma/enums';
 import { Prisma } from '@/generated/prisma/client';
 import { CreateRecordDto } from './dto/create-record.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
@@ -10,13 +11,14 @@ import { QueryRecordsDto } from './dto/query-records.dto';
 import { UploadRecordDto } from './dto/upload-record.dto';
 import { BulkActionDto, BulkActionType } from './dto/bulk-action.dto';
 import { assertValidTransition } from '@/common/helpers/status-transition.helper';
-import { MOCK_RECORDS } from '@/mock/mock-data';
+import { MOCK_RECORDS, MOCK_USER_MAP } from '@/mock/mock-data';
 import { mapMockRecord, mapMockRecordDetail, mapRecord, mapRecordDetail } from './mappers/record.mapper';
 import { StorageService } from '@/storage/storage.service';
 import { QueueService } from '@/worker/queue.service';
 
 @Injectable()
 export class RecordsService {
+  private readonly logger = new Logger(RecordsService.name);
   private readonly useMockData: boolean;
 
   constructor(
@@ -97,6 +99,19 @@ export class RecordsService {
     };
   }
 
+  /** Returns the blobUrl for video streaming. */
+  async getBlobUrl(id: string): Promise<string | null> {
+    if (this.useMockData) {
+      const record = MOCK_RECORDS.find((r) => r.id === id);
+      return record?.blobUrl ?? null;
+    }
+    const record = await this.prisma.record.findUnique({
+      where: { id },
+      select: { blobUrl: true },
+    });
+    return record?.blobUrl ?? null;
+  }
+
   async findOne(id: string) {
     // ── Mock mode ──────────────────────────────────────────────────────────
     if (this.useMockData) {
@@ -140,16 +155,66 @@ export class RecordsService {
     dto: UploadRecordDto,
     uploadedById: string,
   ) {
-    // ── Mock mode: skip file save & DB, return a stub ──────────────────────
+    // ── Mock mode: save file to local disk & push into in-memory array ─────
     if (this.useMockData) {
-      return {
-        id: `MOCK-${Date.now()}`,
-        ...dto,
+      let blobUrl: string | null = null;
+      if (file) {
+        const storageDir = path.resolve('storage', 'videos');
+        await fs.mkdir(storageDir, { recursive: true });
+        const ext = path.extname(file.originalname) || '.mp4';
+        const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+        await fs.writeFile(path.join(storageDir, filename), file.buffer);
+        blobUrl = `storage/videos/${filename}`;
+        this.logger.log(`[Mock] Saved file to ${blobUrl}`);
+      }
+
+      const now = new Date();
+      const id = `MOCK-${Date.now()}`;
+      const mockUser = MOCK_USER_MAP[uploadedById];
+
+      const newRecord = {
+        id,
+        detaineeName: dto.detaineeName,
+        detaineeCode: dto.detaineeCode ?? null,
+        visitorName: dto.visitorName,
+        visitorType: dto.visitorType as VisitorType,
+        unit: dto.unit,
+        vivencia: dto.vivencia ?? null,
+        equipment: dto.equipment,
+        blobUrl,
         mediaAvailable: !!file,
-        blobUrl: file ? `storage/videos/mock-${Date.now()}${path.extname(file.originalname)}` : null,
+        recordedAt: new Date(dto.recordedAt),
+        uploadedAt: now,
+        uploadedById,
+        uploadedBy: mockUser
+          ? { id: mockUser.id, name: mockUser.name }
+          : { id: uploadedById, name: 'Usuário Mock' },
         analysisStatus: AnalysisStatus.uploaded,
-        uploadedAt: new Date().toISOString(),
+        retentionStatus: RetentionStatus.retention_standard,
+        aiScore: null,
+        analystId: null,
+        analystDecision: null,
+        analystJustification: null,
+        analysisConfirmedAt: null,
+        supervisorId: null,
+        supervisorDecision: null,
+        supervisorJustification: null,
+        supervisorDecidedAt: null,
+        transcription: null,
+        canonicalAnalysis: null,
+        userComments: null,
+        archivedAt: null,
+        archivedById: null,
+        archivedBy: null,
+        auditLogs: [],
+        createdAt: now,
+        updatedAt: now,
       };
+
+      MOCK_RECORDS.unshift(newRecord);
+      this.logger.log(`[Mock] Created record ${id} — total mock records: ${MOCK_RECORDS.length}`);
+
+      return mapMockRecord(newRecord);
     }
 
     // ── Real mode: persist file then record ────────────────────────────────
