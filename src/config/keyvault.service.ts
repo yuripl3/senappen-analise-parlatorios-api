@@ -14,7 +14,7 @@ import { ConfigService } from '@nestjs/config';
 export class KeyVaultService implements OnModuleInit {
   private readonly logger = new Logger(KeyVaultService.name);
   private secretCache: Map<string, string> = new Map();
-  private client: any = null;
+  private client: { getSecret(name: string): Promise<{ value?: string }> } | null = null;
   private readonly vaultUrl: string | undefined;
 
   constructor(private readonly config: ConfigService) {

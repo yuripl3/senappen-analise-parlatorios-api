@@ -1,10 +1,5 @@
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RetentionService } from './retention.service';
 import { UpdateRetentionPolicyDto } from './dto/update-retention-policy.dto';
 import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
@@ -40,10 +35,7 @@ export class RetentionController {
       'Pass only the fields you want to change.',
   })
   @ApiOkResponse({ description: 'Updated retention policy.' })
-  update(
-    @Body() dto: UpdateRetentionPolicyDto,
-    @CurrentUser() actor: JwtPayload,
-  ) {
+  update(@Body() dto: UpdateRetentionPolicyDto, @CurrentUser() actor: JwtPayload) {
     return this.retentionService.update(dto, actor.sub);
   }
 }

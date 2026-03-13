@@ -36,8 +36,7 @@ export class ServiceBusService implements OnModuleInit, OnModuleDestroy {
 
   constructor(private readonly config: ConfigService) {
     this.connectionString = this.config.get<string>('SERVICE_BUS_CONNECTION_STRING');
-    this.useMock =
-      this.config.get<string>('USE_MOCK_DATA') === 'true' || !this.connectionString;
+    this.useMock = this.config.get<string>('USE_MOCK_DATA') === 'true' || !this.connectionString;
   }
 
   onModuleInit() {
@@ -99,8 +98,9 @@ export class ServiceBusService implements OnModuleInit, OnModuleDestroy {
           // Message will be retried by Service Bus dead-letter / retry policy
         }
       },
-      processError: async (args) => {
+      processError: (args): Promise<void> => {
         this.logger.error(`Service Bus receiver error: ${args.error.message}`);
+        return Promise.resolve();
       },
     });
 

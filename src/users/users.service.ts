@@ -9,6 +9,19 @@ import { MOCK_USERS } from '@/mock/mock-data';
 
 const BCRYPT_ROUNDS = 12;
 
+interface CosmosUserDoc {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  role: string;
+  units: string[];
+  active: boolean;
+  lastLogin: Date | string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 function mapUser(u: {
   id: string;
   name: string;
@@ -22,7 +35,8 @@ function mapUser(u: {
   const formatDate = (d: Date) =>
     `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-  const lastLoginDate = u.lastLogin instanceof Date ? u.lastLogin : u.lastLogin ? new Date(u.lastLogin) : null;
+  const lastLoginDate =
+    u.lastLogin instanceof Date ? u.lastLogin : u.lastLogin ? new Date(u.lastLogin) : null;
 
   return {
     id: u.id,
@@ -51,7 +65,10 @@ export class UsersService {
       return Promise.resolve(MOCK_USERS.map(mapUser));
     }
     return this.cosmos.users.items
-      .query({ query: 'SELECT c.id, c.name, c.email, c.role, c.units, c.active, c.lastLogin FROM c ORDER BY c.name ASC' })
+      .query<CosmosUserDoc>({
+        query:
+          'SELECT c.id, c.name, c.email, c.role, c.units, c.active, c.lastLogin FROM c ORDER BY c.name ASC',
+      })
       .fetchAll()
       .then(({ resources }) => resources.map(mapUser));
   }
@@ -62,7 +79,7 @@ export class UsersService {
       if (!user) throw new NotFoundException(`User ${id} not found`);
       return mapUser(user);
     }
-    const { resource: user } = await this.cosmos.users.item(id, id).read();
+    const { resource: user } = await this.cosmos.users.item(id, id).read<CosmosUserDoc>();
     if (!user) throw new NotFoundException(`User ${id} not found`);
     return mapUser(user);
   }
@@ -72,7 +89,7 @@ export class UsersService {
       return MOCK_USERS.find((u) => u.email === email) ?? null;
     }
     const { resources } = await this.cosmos.users.items
-      .query({
+      .query<CosmosUserDoc>({
         query: 'SELECT * FROM c WHERE c.email = @email',
         parameters: [{ name: '@email', value: email }],
       })
@@ -103,7 +120,7 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto) {
-    const { resource: user } = await this.cosmos.users.item(id, id).read();
+    const { resource: user } = await this.cosmos.users.item(id, id).read<CosmosUserDoc>();
     if (!user) throw new NotFoundException(`User ${id} not found`);
 
     if (dto.email && dto.email !== user.email) {
@@ -120,7 +137,7 @@ export class UsersService {
     };
 
     const { resource } = await this.cosmos.users.item(id, id).replace(updatedDoc);
-    return mapUser(resource);
+    return mapUser(resource as CosmosUserDoc);
   }
 
   async findAllAuditLogs(params: { page?: number; limit?: number; search?: string }) {
@@ -136,7 +153,9 @@ export class UsersService {
     const parameters: { name: string; value: string | number | boolean }[] = [];
 
     if (search) {
-      conditions.push('(CONTAINS(LOWER(c.action), @search) OR CONTAINS(LOWER(c.user.name), @search))');
+      conditions.push(
+        '(CONTAINS(LOWER(c.action), @search) OR CONTAINS(LOWER(c.user.name), @search))',
+      );
       parameters.push({ name: '@search', value: search.toLowerCase() });
     }
 
@@ -152,22 +171,26 @@ export class UsersService {
     const { resources: logs } = await this.cosmos.auditLogs.items
       .query({
         query: `SELECT * FROM c ${whereClause} ORDER BY c.createdAt DESC OFFSET @skip LIMIT @limit`,
-        parameters: [...parameters, { name: '@skip', value: skip }, { name: '@limit', value: limit }],
+        parameters: [
+          ...parameters,
+          { name: '@skip', value: skip },
+          { name: '@limit', value: limit },
+        ],
       })
       .fetchAll();
 
     return {
-      data: logs.map((log: any) => ({
-        id: log.id,
-        recordId: log.recordId ?? undefined,
-        userId: log.userId,
-        user: log.user?.name ?? 'Unknown',
-        userRole: log.user?.role ?? 'unknown',
-        action: log.action,
-        previousStatus: log.previousStatus,
-        nextStatus: log.nextStatus,
-        notes: log.notes,
-        timestamp: log.createdAt,
+      data: logs.map((log: Record<string, unknown>) => ({
+        id: log.id as string,
+        recordId: (log.recordId as string) ?? undefined,
+        userId: log.userId as string,
+        user: ((log.user as { name?: string })?.name as string) ?? 'Unknown',
+        userRole: ((log.user as { role?: string })?.role as string) ?? 'unknown',
+        action: log.action as string,
+        previousStatus: log.previousStatus as string,
+        nextStatus: log.nextStatus as string,
+        notes: log.notes as string,
+        timestamp: log.createdAt as string,
       })),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };

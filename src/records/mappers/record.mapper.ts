@@ -47,7 +47,7 @@ function computeDaysUntilDeletion(
 
 // ─── AuditLog mapper ─────────────────────────────────────────────────────────
 
-type RawAuditLog =
+export type RawAuditLog =
   | MockAuditLog
   | {
       id: string;
@@ -64,7 +64,7 @@ export function mapAuditLog(log: RawAuditLog) {
     id: log.id,
     recordId: log.recordId ?? undefined,
     user: log.user.name,
-    userRole: ((log.user as any).role as UserRole) ?? UserRole.analista,
+    userRole: ((log.user as { role?: string }).role as UserRole) ?? UserRole.analista,
     action: log.notes ? log.action + ' — ' + log.notes : log.action,
     timestamp: formatBrDate(log.createdAt),
   };
@@ -72,7 +72,7 @@ export function mapAuditLog(log: RawAuditLog) {
 
 // ─── Record input type (matches Cosmos DB doc shape after toRawRecord) ────────
 
-type RawRecord = {
+export type RawRecord = {
   id: string;
   detaineeName: string;
   detaineeCode: string | null;
@@ -122,15 +122,13 @@ export function mapRecord(r: RawRecord) {
     mediaAvailable: r.mediaAvailable,
     videoUrl: r.blobUrl ? `/records/${r.id}/stream` : undefined,
     archivedAt: r.archivedAt ? formatBrDateOnly(r.archivedAt) : undefined,
-    archivedBy: r.archivedBy
-      ? `${r.archivedBy.name} (${r.archivedBy.role ?? 'staff'})`
-      : undefined,
+    archivedBy: r.archivedBy ? `${r.archivedBy.name} (${r.archivedBy.role ?? 'staff'})` : undefined,
   };
 }
 
 // ─── Detail view mapper — includes auditLogs and transcription fields ──────────
 
-type RawRecordWithDetail = RawRecord & {
+export type RawRecordWithDetail = RawRecord & {
   auditLogs: RawAuditLog[];
   userComments?: unknown;
 };

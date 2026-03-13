@@ -69,7 +69,7 @@ export class StorageService {
    * Generate a short-lived SAS URL for a blob (Azure only).
    * If using local storage, returns the local path unchanged.
    */
-  async generateSasUrl(blobUrl: string, expiresInHours = 2): Promise<string> {
+  generateSasUrl(blobUrl: string, expiresInHours = 2): string {
     if (!this.useAzure || !this.blobServiceClient || !this.containerName) {
       return blobUrl; // local path — no SAS needed
     }
@@ -87,10 +87,12 @@ export class StorageService {
 
     // Try managed identity / key-based SAS; fall back to blob URL for anonymous containers
     try {
-      const accountName = this.blobServiceClient.accountName;
-      const sharedKeyCredential = (this.blobServiceClient as BlobServiceClient & {
-        credential?: StorageSharedKeyCredential;
-      }).credential;
+      const _accountName = this.blobServiceClient.accountName;
+      const sharedKeyCredential = (
+        this.blobServiceClient as BlobServiceClient & {
+          credential?: StorageSharedKeyCredential;
+        }
+      ).credential;
 
       if (!(sharedKeyCredential instanceof StorageSharedKeyCredential)) {
         // Can't generate SAS without shared key — return plain URL

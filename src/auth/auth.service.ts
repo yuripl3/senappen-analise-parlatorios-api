@@ -6,6 +6,17 @@ import { CosmosService } from '@/database/cosmos.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './decorators/current-user.decorator';
 
+interface CosmosUserDoc {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  role: string;
+  units: string[];
+  active: boolean;
+  lastLogin: string | null;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -51,7 +62,9 @@ export class AuthService {
       throw new UnauthorizedException('Token inválido.');
     }
 
-    const { resource: user } = await this.cosmos.users.item(payload.sub, payload.sub).read();
+    const { resource: user } = await this.cosmos.users
+      .item(payload.sub, payload.sub)
+      .read<CosmosUserDoc>();
     if (!user || !user.active) {
       throw new NotFoundException('Usuário não encontrado ou inativo.');
     }
@@ -61,9 +74,9 @@ export class AuthService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private async findUserByEmail(email: string) {
+  private async findUserByEmail(email: string): Promise<CosmosUserDoc | null> {
     const { resources } = await this.cosmos.users.items
-      .query({
+      .query<CosmosUserDoc>({
         query: 'SELECT * FROM c WHERE c.email = @email',
         parameters: [{ name: '@email', value: email }],
       })

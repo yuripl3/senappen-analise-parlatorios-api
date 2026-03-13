@@ -9,7 +9,7 @@ export interface TranscriptionLine {
   text: string;
 }
 
-export interface CanonicalLine extends TranscriptionLine {}
+export type CanonicalLine = TranscriptionLine;
 
 export interface FlaggedSegment {
   start: string;
@@ -64,7 +64,16 @@ export class AiService {
 
     // ── 1. Whisper transcription ──────────────────────────────────────────
     this.logger.log('Calling Whisper for transcription…');
-    const file = new File([audioBuffer.buffer.slice(audioBuffer.byteOffset, audioBuffer.byteOffset + audioBuffer.byteLength) as ArrayBuffer], filename, { type: 'audio/mpeg' });
+    const file = new File(
+      [
+        audioBuffer.buffer.slice(
+          audioBuffer.byteOffset,
+          audioBuffer.byteOffset + audioBuffer.byteLength,
+        ) as ArrayBuffer,
+      ],
+      filename,
+      { type: 'audio/mpeg' },
+    );
     const whisperResp = await this.client.audio.transcriptions.create({
       model: 'whisper-1',
       file,

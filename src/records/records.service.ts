@@ -12,9 +12,53 @@ import { UploadRecordDto } from './dto/upload-record.dto';
 import { BulkActionDto, BulkActionType } from './dto/bulk-action.dto';
 import { assertValidTransition } from '@/common/helpers/status-transition.helper';
 import { MOCK_RECORDS, MOCK_USER_MAP } from '@/mock/mock-data';
-import { mapMockRecord, mapMockRecordDetail, mapRecord, mapRecordDetail } from './mappers/record.mapper';
+import {
+  mapMockRecord,
+  mapMockRecordDetail,
+  mapRecord,
+  mapRecordDetail,
+} from './mappers/record.mapper';
 import { StorageService } from '@/storage/storage.service';
 import { ServiceBusService } from '@/worker/servicebus.service';
+
+/** Shape of a record document stored in Cosmos DB */
+interface CosmosRecordDoc {
+  id: string;
+  detaineeName: string;
+  detaineeCode: string | null;
+  visitorName: string;
+  visitorType: VisitorType;
+  unit: string;
+  vivencia: string | null;
+  equipment: string;
+  blobUrl: string | null;
+  mediaAvailable: boolean;
+  recordedAt: string;
+  uploadedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  uploadedById: string;
+  uploadedBy: { id: string; name: string };
+  analysisStatus: AnalysisStatus;
+  retentionStatus: RetentionStatus;
+  aiScore: number | null;
+  transcription: unknown;
+  canonicalAnalysis: unknown;
+  userComments?: unknown;
+  archivedAt: string | null;
+  archivedBy: { id: string; name: string; role?: string } | null;
+  archivedById: string | null;
+}
+
+export interface CosmosAuditLogDoc {
+  id: string;
+  recordId: string | null;
+  userId: string;
+  user: { id: string; name: string; role: string };
+  action: string;
+  notes: string | null;
+  createdAt: string;
+}
 
 @Injectable()
 export class RecordsService {
@@ -98,21 +142,29 @@ export class RecordsService {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     // Count
-    const { resources: countResult } = await this.cosmos.records.items.query({
-      query: `SELECT VALUE COUNT(1) FROM c ${whereClause}`,
-      parameters,
-    }).fetchAll();
+    const { resources: countResult } = await this.cosmos.records.items
+      .query({
+        query: `SELECT VALUE COUNT(1) FROM c ${whereClause}`,
+        parameters,
+      })
+      .fetchAll();
     const total = countResult[0] ?? 0;
 
     // Paginated query using OFFSET/LIMIT
     const skip = (page - 1) * limit;
-    const { resources: items } = await this.cosmos.records.items.query({
-      query: `SELECT * FROM c ${whereClause} ORDER BY c.recordedAt DESC OFFSET @skip LIMIT @limit`,
-      parameters: [...parameters, { name: '@skip', value: skip }, { name: '@limit', value: limit }],
-    }).fetchAll();
+    const { resources: items } = await this.cosmos.records.items
+      .query<CosmosRecordDoc>({
+        query: `SELECT * FROM c ${whereClause} ORDER BY c.recordedAt DESC OFFSET @skip LIMIT @limit`,
+        parameters: [
+          ...parameters,
+          { name: '@skip', value: skip },
+          { name: '@limit', value: limit },
+        ],
+      })
+      .fetchAll();
 
     return {
-      data: items.map((r: any) => mapRecord(this.toRawRecord(r))),
+      data: items.map((r: CosmosRecordDoc) => mapRecord(this.toRawRecord(r))),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -124,7 +176,7 @@ export class RecordsService {
       return record?.blobUrl ?? null;
     }
     try {
-      const { resource } = await this.cosmos.records.item(id, id).read();
+      const { resource } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
       return resource?.blobUrl ?? null;
     } catch {
       return null;
@@ -140,14 +192,16 @@ export class RecordsService {
     }
 
     // ── Cosmos DB mode ─────────────────────────────────────────────────────
-    const { resource: record } = await this.cosmos.records.item(id, id).read();
+    const { resource: record } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
 
     // Fetch audit logs for this record
-    const { resources: auditLogs } = await this.cosmos.auditLogs.items.query({
-      query: 'SELECT * FROM c WHERE c.recordId = @recordId ORDER BY c.createdAt ASC',
-      parameters: [{ name: '@recordId', value: id }],
-    }).fetchAll();
+    const { resources: auditLogs } = await this.cosmos.auditLogs.items
+      .query<CosmosAuditLogDoc>({
+        query: 'SELECT * FROM c WHERE c.recordId = @recordId ORDER BY c.createdAt ASC',
+        parameters: [{ name: '@recordId', value: id }],
+      })
+      .fetchAll();
 
     return mapRecordDetail(this.toRawRecordWithDetail(record, auditLogs));
   }
@@ -192,11 +246,7 @@ export class RecordsService {
   }
 
   /** Handles multipart/form-data upload: saves file via StorageService, creates record. */
-  async upload(
-    file: Express.Multer.File | undefined,
-    dto: UploadRecordDto,
-    uploadedById: string,
-  ) {
+  async upload(file: Express.Multer.File | undefined, dto: UploadRecordDto, uploadedById: string) {
     // ── Mock mode: save file to local disk & push into in-memory array ─────
     if (this.useMockData) {
       let blobUrl: string | null = null;
@@ -219,7 +269,7 @@ export class RecordsService {
         detaineeName: dto.detaineeName,
         detaineeCode: dto.detaineeCode ?? null,
         visitorName: dto.visitorName,
-        visitorType: dto.visitorType as VisitorType,
+        visitorType: dto.visitorType,
         unit: dto.unit,
         vivencia: dto.vivencia ?? null,
         equipment: dto.equipment,
@@ -312,7 +362,7 @@ export class RecordsService {
   }
 
   async updateStatus(id: string, dto: UpdateStatusDto, actorId: string) {
-    const { resource: record } = await this.cosmos.records.item(id, id).read();
+    const { resource: record } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
 
     assertValidTransition(record.analysisStatus, dto.status);
@@ -326,14 +376,19 @@ export class RecordsService {
     if (dto.analystDecision) {
       updates.analystDecision = dto.analystDecision;
     }
-    if (dto.justification &&
-      (dto.status === AnalysisStatus.confirmed_human || dto.status === AnalysisStatus.rejected_human)) {
+    if (
+      dto.justification &&
+      (dto.status === AnalysisStatus.confirmed_human ||
+        dto.status === AnalysisStatus.rejected_human)
+    ) {
       updates.analystJustification = dto.justification;
       updates.analysisConfirmedAt = now;
       updates.analystId = actorId;
     }
-    if (dto.justification &&
-      (dto.status === AnalysisStatus.approved || dto.status === AnalysisStatus.rejected_supervisor)) {
+    if (
+      dto.justification &&
+      (dto.status === AnalysisStatus.approved || dto.status === AnalysisStatus.rejected_supervisor)
+    ) {
       updates.supervisorJustification = dto.justification;
       updates.supervisorDecidedAt = now;
       updates.supervisorId = actorId;
@@ -348,7 +403,11 @@ export class RecordsService {
       id: crypto.randomUUID(),
       recordId: id,
       userId: actorId,
-      user: { id: actorId, name: await this.getUserName(actorId), role: await this.getUserRole(actorId) },
+      user: {
+        id: actorId,
+        name: await this.getUserName(actorId),
+        role: await this.getUserRole(actorId),
+      },
       action: 'status_transition',
       previousStatus: record.analysisStatus,
       nextStatus: dto.status,
@@ -362,7 +421,7 @@ export class RecordsService {
   // ── Archive / Restore ──────────────────────────────────────────────────────
 
   async archive(id: string, actorId: string) {
-    const { resource: record } = await this.cosmos.records.item(id, id).read();
+    const { resource: record } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
 
     const now = new Date().toISOString();
@@ -396,7 +455,7 @@ export class RecordsService {
   }
 
   async restore(id: string, actorId: string) {
-    const { resource: record } = await this.cosmos.records.item(id, id).read();
+    const { resource: record } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
 
     const now = new Date().toISOString();
@@ -415,7 +474,11 @@ export class RecordsService {
       id: crypto.randomUUID(),
       recordId: id,
       userId: actorId,
-      user: { id: actorId, name: await this.getUserName(actorId), role: await this.getUserRole(actorId) },
+      user: {
+        id: actorId,
+        name: await this.getUserName(actorId),
+        role: await this.getUserRole(actorId),
+      },
       action: 'restore',
       previousStatus: null,
       nextStatus: null,
@@ -427,11 +490,12 @@ export class RecordsService {
   }
 
   async bulkAction(dto: BulkActionDto, actorId: string) {
-    const fn = dto.action === BulkActionType.archive
-      ? (id: string) => this.archive(id, actorId)
-      : (id: string) => this.restore(id, actorId);
+    const fn =
+      dto.action === BulkActionType.archive
+        ? (id: string) => this.archive(id, actorId)
+        : (id: string) => this.restore(id, actorId);
 
-    const results = await Promise.allSettled(dto.ids.map(fn));
+    const results = await Promise.allSettled(dto.ids.map((id) => fn(id)));
     const succeeded = dto.ids.filter((_, i) => results[i].status === 'fulfilled');
     const failed = dto.ids.filter((_, i) => results[i].status === 'rejected');
 
@@ -441,13 +505,15 @@ export class RecordsService {
   // ── Audit log ──────────────────────────────────────────────────────────────
 
   async getAudit(id: string) {
-    const { resource } = await this.cosmos.records.item(id, id).read();
+    const { resource } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
     if (!resource) throw new NotFoundException(`Record ${id} not found`);
 
-    const { resources: logs } = await this.cosmos.auditLogs.items.query({
-      query: 'SELECT * FROM c WHERE c.recordId = @recordId ORDER BY c.createdAt ASC',
-      parameters: [{ name: '@recordId', value: id }],
-    }).fetchAll();
+    const { resources: logs } = await this.cosmos.auditLogs.items
+      .query<CosmosAuditLogDoc>({
+        query: 'SELECT * FROM c WHERE c.recordId = @recordId ORDER BY c.createdAt ASC',
+        parameters: [{ name: '@recordId', value: id }],
+      })
+      .fetchAll();
 
     return logs;
   }
@@ -459,20 +525,20 @@ export class RecordsService {
       return { id, userComments: comments };
     }
 
-    const { resource: record } = await this.cosmos.records.item(id, id).read();
+    const { resource: record } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
 
     const updatedDoc = { ...record, userComments: comments, updatedAt: new Date().toISOString() };
     const { resource: updated } = await this.cosmos.records.item(id, id).replace(updatedDoc);
 
-    return { id: updated.id, userComments: updated.userComments };
+    return { id: updated!.id, userComments: updated!.userComments };
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────
 
   private async getUserName(userId: string): Promise<string> {
     try {
-      const { resource } = await this.cosmos.users.item(userId, userId).read();
+      const { resource } = await this.cosmos.users.item(userId, userId).read<{ name?: string }>();
       return resource?.name ?? 'Unknown';
     } catch {
       return 'Unknown';
@@ -481,7 +547,7 @@ export class RecordsService {
 
   private async getUserRole(userId: string): Promise<string> {
     try {
-      const { resource } = await this.cosmos.users.item(userId, userId).read();
+      const { resource } = await this.cosmos.users.item(userId, userId).read<{ role?: string }>();
       return resource?.role ?? 'unknown';
     } catch {
       return 'unknown';
@@ -489,7 +555,7 @@ export class RecordsService {
   }
 
   /** Convert Cosmos DB document to the shape expected by record.mapper.ts */
-  private toRawRecord(doc: any) {
+  private toRawRecord(doc: CosmosRecordDoc) {
     return {
       id: doc.id,
       detaineeName: doc.detaineeName,
@@ -514,11 +580,11 @@ export class RecordsService {
     };
   }
 
-  private toRawRecordWithDetail(doc: any, auditLogs: any[]) {
+  private toRawRecordWithDetail(doc: CosmosRecordDoc, auditLogs: CosmosAuditLogDoc[]) {
     return {
       ...this.toRawRecord(doc),
       userComments: doc.userComments ?? null,
-      auditLogs: auditLogs.map((log: any) => ({
+      auditLogs: auditLogs.map((log: CosmosAuditLogDoc) => ({
         id: log.id,
         recordId: log.recordId ?? null,
         userId: log.userId,

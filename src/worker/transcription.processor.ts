@@ -48,7 +48,8 @@ export class TranscriptionProcessor implements OnModuleInit {
     this.logger.log(`Processing record ${recordId} (blobUrl: ${blobUrl ?? 'none'})`);
 
     // 1. Mark as processing_ai
-    const { resource: record } = await this.cosmos.records.item(recordId, recordId).read();
+    const readResult = await this.cosmos.records.item(recordId, recordId).read();
+    const record = readResult.resource as Record<string, unknown> | undefined;
     if (!record) {
       this.logger.warn(`Record ${recordId} not found — skipping`);
       return;
@@ -85,7 +86,8 @@ export class TranscriptionProcessor implements OnModuleInit {
     const nextStatus = result.aiScore >= 60 ? AnalysisStatus.flagged_ai : AnalysisStatus.clean;
 
     // 5. Persist result and transition status
-    const { resource: currentRecord } = await this.cosmos.records.item(recordId, recordId).read();
+    const currentReadResult = await this.cosmos.records.item(recordId, recordId).read();
+    const currentRecord = currentReadResult.resource as Record<string, unknown> | undefined;
     await this.cosmos.records.item(recordId, recordId).replace({
       ...currentRecord,
       analysisStatus: nextStatus,
@@ -126,15 +128,17 @@ export class TranscriptionProcessor implements OnModuleInit {
         .audioChannels(1)
         .audioFrequency(16_000)
         .format('mp3')
-        .on('error', reject)
-        .on('end', async () => {
-          try {
-            const buf = await fs.readFile(tmpFile);
-            await fs.unlink(tmpFile).catch(() => undefined);
-            resolve(buf);
-          } catch (e) {
-            reject(e);
-          }
+        .on('error', (err: Error) => reject(err))
+        .on('end', () => {
+          void (async () => {
+            try {
+              const buf = await fs.readFile(tmpFile);
+              await fs.unlink(tmpFile).catch(() => undefined);
+              resolve(buf);
+            } catch (e: unknown) {
+              reject(e instanceof Error ? e : new Error(String(e)));
+            }
+          })();
         })
         .save(tmpFile);
     });

@@ -1,7 +1,13 @@
-import { mapAuditLog, mapRecord, mapRecordDetail } from './record.mapper';
+import {
+  mapAuditLog,
+  mapRecord,
+  mapRecordDetail,
+  RawRecord,
+  RawRecordWithDetail,
+} from './record.mapper';
 
 // ─── Factories ──────────────────────────────────────────────────────────────
-function makeRawRecord(overrides: Record<string, unknown> = {}) {
+function makeRawRecord(overrides: Record<string, unknown> = {}): RawRecord {
   return {
     id: 'rec-1',
     detaineeName: 'João Silva',
@@ -24,7 +30,7 @@ function makeRawRecord(overrides: Record<string, unknown> = {}) {
     archivedAt: null,
     archivedBy: null,
     ...overrides,
-  };
+  } as RawRecord;
 }
 
 function makeRawAuditLog(overrides: Record<string, unknown> = {}) {
@@ -79,7 +85,7 @@ describe('record.mapper', () => {
   describe('mapRecord', () => {
     it('should map all basic fields', () => {
       const raw = makeRawRecord();
-      const result = mapRecord(raw as any);
+      const result = mapRecord(raw);
 
       expect(result.id).toBe('rec-1');
       expect(result.detainee).toEqual({ id: 'DET-001', name: 'João Silva' });
@@ -95,21 +101,21 @@ describe('record.mapper', () => {
 
     it('should use record id as detainee.id when detaineeCode is null', () => {
       const raw = makeRawRecord({ detaineeCode: null });
-      const result = mapRecord(raw as any);
+      const result = mapRecord(raw);
 
       expect(result.detainee.id).toBe('rec-1');
     });
 
     it('should set vivencia to undefined when null', () => {
       const raw = makeRawRecord({ vivencia: null });
-      const result = mapRecord(raw as any);
+      const result = mapRecord(raw);
 
       expect(result.vivencia).toBeUndefined();
     });
 
     it('should set aiScore to undefined when null', () => {
       const raw = makeRawRecord({ aiScore: null });
-      const result = mapRecord(raw as any);
+      const result = mapRecord(raw);
 
       expect(result.aiScore).toBeUndefined();
     });
@@ -122,7 +128,7 @@ describe('record.mapper', () => {
         recordedAt: futureDate,
         retentionStatus: 'retention_standard',
       });
-      const result = mapRecord(raw as any);
+      const result = mapRecord(raw);
 
       expect(typeof result.daysUntilDeletion).toBe('number');
       expect(result.daysUntilDeletion).toBeGreaterThan(0);
@@ -130,7 +136,7 @@ describe('record.mapper', () => {
 
     it('should return null for daysUntilDeletion with permanent_retention', () => {
       const raw = makeRawRecord({ retentionStatus: 'permanent_retention' });
-      const result = mapRecord(raw as any);
+      const result = mapRecord(raw);
 
       expect(result.daysUntilDeletion).toBeNull();
     });
@@ -141,7 +147,7 @@ describe('record.mapper', () => {
         recordedAt: pastDate,
         retentionStatus: 'retention_standard',
       });
-      const result = mapRecord(raw as any);
+      const result = mapRecord(raw);
 
       expect(result.daysUntilDeletion).toBe(0);
     });
@@ -151,7 +157,7 @@ describe('record.mapper', () => {
         archivedAt: new Date('2025-02-20T00:00:00Z'),
         archivedBy: { id: 'u2', name: 'Supervisor', role: 'supervisor' },
       });
-      const result = mapRecord(raw as any);
+      const result = mapRecord(raw);
 
       expect(result.archivedAt).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
       expect(result.archivedBy).toBe('Supervisor (supervisor)');
@@ -159,7 +165,7 @@ describe('record.mapper', () => {
 
     it('should omit archivedAt/archivedBy when null', () => {
       const raw = makeRawRecord();
-      const result = mapRecord(raw as any);
+      const result = mapRecord(raw);
 
       expect(result.archivedAt).toBeUndefined();
       expect(result.archivedBy).toBeUndefined();
@@ -174,7 +180,7 @@ describe('record.mapper', () => {
 
       for (const [input, expected] of typeCases) {
         const raw = makeRawRecord({ visitorType: input });
-        const result = mapRecord(raw as any);
+        const result = mapRecord(raw);
         expect(result.visitor.type).toBe(expected);
       }
     });
@@ -194,7 +200,7 @@ describe('record.mapper', () => {
         userComments: [{ lineIndex: 0, tagged: true, comment: 'Check this' }],
       };
 
-      const result = mapRecordDetail(raw as any);
+      const result = mapRecordDetail(raw as RawRecordWithDetail);
 
       expect(result.id).toBe('rec-1');
       expect(result.auditLogs).toHaveLength(1);
@@ -215,7 +221,7 @@ describe('record.mapper', () => {
         auditLogs: [],
       };
 
-      const result = mapRecordDetail(raw as any);
+      const result = mapRecordDetail(raw as RawRecordWithDetail);
 
       expect(result.transcriptionLines).toBeNull();
       expect(result.canonicalLines).toBeNull();
@@ -228,7 +234,7 @@ describe('record.mapper', () => {
         auditLogs: [],
       };
 
-      const result = mapRecordDetail(raw as any);
+      const result = mapRecordDetail(raw as RawRecordWithDetail);
 
       expect(result.userComments).toBeNull();
     });

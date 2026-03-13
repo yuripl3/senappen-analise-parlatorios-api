@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Header,
   NotFoundException,
   Param,
   Patch,
@@ -10,7 +9,6 @@ import {
   Query,
   Req,
   Res,
-  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -75,11 +73,7 @@ export class RecordsController {
   })
   @ApiParam({ name: 'id', description: 'Record UUID' })
   @ApiOkResponse({ description: 'Video binary stream.' })
-  async streamVideo(
-    @Param('id') id: string,
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
+  async streamVideo(@Param('id') id: string, @Req() req: Request, @Res() res: Response) {
     const blobUrl = await this.recordsService.getBlobUrl(id);
     if (!blobUrl) throw new NotFoundException('Video not available for this record');
 
@@ -212,15 +206,12 @@ export class RecordsController {
 
   @Patch(':id/user-comments')
   @ApiOperation({
-    summary: 'Update per-line user comments on a record\'s transcription',
+    summary: "Update per-line user comments on a record's transcription",
     description: 'Stores user-authored per-line comments/tags alongside the AI transcription.',
   })
   @ApiParam({ name: 'id', description: 'Record UUID' })
   @ApiOkResponse({ description: 'Updated user comments.' })
-  updateUserComments(
-    @Param('id') id: string,
-    @Body() dto: UpdateUserCommentsDto,
-  ) {
+  updateUserComments(@Param('id') id: string, @Body() dto: UpdateUserCommentsDto) {
     return this.recordsService.updateUserComments(id, dto.comments);
   }
 }

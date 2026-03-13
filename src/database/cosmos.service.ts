@@ -47,7 +47,7 @@ export class CosmosService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Cosmos DB connected — database: ${databaseId}`);
   }
 
-  async onModuleDestroy() {
+  onModuleDestroy() {
     this.client?.dispose();
   }
 

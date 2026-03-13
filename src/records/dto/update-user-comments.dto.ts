@@ -1,5 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, ValidateNested, IsInt, Min, IsOptional, IsString, IsBoolean } from 'class-validator';
+import {
+  IsArray,
+  ValidateNested,
+  IsInt,
+  Min,
+  IsOptional,
+  IsString,
+  IsBoolean,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 /**
@@ -19,7 +27,11 @@ export class UserCommentEntry {
   @IsBoolean()
   tagged!: boolean;
 
-  @ApiProperty({ description: 'Optional textual comment from the user.', required: false, example: 'Possível referência a entrega de substância.' })
+  @ApiProperty({
+    description: 'Optional textual comment from the user.',
+    required: false,
+    example: 'Possível referência a entrega de substância.',
+  })
   @IsOptional()
   @IsString()
   comment?: string;

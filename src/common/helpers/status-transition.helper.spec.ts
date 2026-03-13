@@ -4,76 +4,81 @@ import {
   assertValidTransition,
   getAllowedNextStatuses,
 } from './status-transition.helper';
+import { AnalysisStatus } from '@/common/constants/enums';
 
-// We reference the enum values as plain strings since the helper casts them
-type AS = string;
-
-const TERMINAL: AS[] = ['clean', 'rejected_human', 'approved', 'rejected_supervisor'];
+const TERMINAL: AnalysisStatus[] = [
+  AnalysisStatus.clean,
+  AnalysisStatus.rejected_human,
+  AnalysisStatus.approved,
+  AnalysisStatus.rejected_supervisor,
+];
 
 describe('status-transition.helper', () => {
   describe('isValidTransition', () => {
-    const validCases: [AS, AS][] = [
-      ['uploaded', 'processing_ai'],
-      ['processing_ai', 'clean'],
-      ['processing_ai', 'flagged_ai'],
-      ['flagged_ai', 'under_review'],
-      ['under_review', 'confirmed_human'],
-      ['under_review', 'rejected_human'],
-      ['confirmed_human', 'approved'],
-      ['confirmed_human', 'rejected_supervisor'],
+    const validCases: [AnalysisStatus, AnalysisStatus][] = [
+      [AnalysisStatus.uploaded, AnalysisStatus.processing_ai],
+      [AnalysisStatus.processing_ai, AnalysisStatus.clean],
+      [AnalysisStatus.processing_ai, AnalysisStatus.flagged_ai],
+      [AnalysisStatus.flagged_ai, AnalysisStatus.under_review],
+      [AnalysisStatus.under_review, AnalysisStatus.confirmed_human],
+      [AnalysisStatus.under_review, AnalysisStatus.rejected_human],
+      [AnalysisStatus.confirmed_human, AnalysisStatus.approved],
+      [AnalysisStatus.confirmed_human, AnalysisStatus.rejected_supervisor],
     ];
 
     it.each(validCases)('should allow %s → %s', (current, next) => {
-      expect(isValidTransition(current as any, next as any)).toBe(true);
+      expect(isValidTransition(current, next)).toBe(true);
     });
 
-    const invalidCases: [AS, AS][] = [
-      ['uploaded', 'clean'],
-      ['uploaded', 'flagged_ai'],
-      ['processing_ai', 'under_review'],
-      ['flagged_ai', 'clean'],
-      ['under_review', 'approved'],
-      ['confirmed_human', 'clean'],
-      ['clean', 'uploaded'],
-      ['approved', 'rejected_supervisor'],
+    const invalidCases: [AnalysisStatus, AnalysisStatus][] = [
+      [AnalysisStatus.uploaded, AnalysisStatus.clean],
+      [AnalysisStatus.uploaded, AnalysisStatus.flagged_ai],
+      [AnalysisStatus.processing_ai, AnalysisStatus.under_review],
+      [AnalysisStatus.flagged_ai, AnalysisStatus.clean],
+      [AnalysisStatus.under_review, AnalysisStatus.approved],
+      [AnalysisStatus.confirmed_human, AnalysisStatus.clean],
+      [AnalysisStatus.clean, AnalysisStatus.uploaded],
+      [AnalysisStatus.approved, AnalysisStatus.rejected_supervisor],
     ];
 
     it.each(invalidCases)('should reject %s → %s', (current, next) => {
-      expect(isValidTransition(current as any, next as any)).toBe(false);
+      expect(isValidTransition(current, next)).toBe(false);
     });
 
     it.each(TERMINAL)('should reject any transition FROM terminal state %s', (terminal) => {
-      const allStatuses: AS[] = [
-        'uploaded',
-        'processing_ai',
-        'clean',
-        'flagged_ai',
-        'under_review',
-        'confirmed_human',
-        'rejected_human',
-        'approved',
-        'rejected_supervisor',
+      const allStatuses: AnalysisStatus[] = [
+        AnalysisStatus.uploaded,
+        AnalysisStatus.processing_ai,
+        AnalysisStatus.clean,
+        AnalysisStatus.flagged_ai,
+        AnalysisStatus.under_review,
+        AnalysisStatus.confirmed_human,
+        AnalysisStatus.rejected_human,
+        AnalysisStatus.approved,
+        AnalysisStatus.rejected_supervisor,
       ];
       for (const s of allStatuses) {
-        expect(isValidTransition(terminal as any, s as any)).toBe(false);
+        expect(isValidTransition(terminal, s)).toBe(false);
       }
     });
   });
 
   describe('assertValidTransition', () => {
     it('should not throw for valid transitions', () => {
-      expect(() => assertValidTransition('uploaded' as any, 'processing_ai' as any)).not.toThrow();
+      expect(() =>
+        assertValidTransition(AnalysisStatus.uploaded, AnalysisStatus.processing_ai),
+      ).not.toThrow();
     });
 
     it('should throw BadRequestException for invalid transitions', () => {
-      expect(() => assertValidTransition('uploaded' as any, 'approved' as any)).toThrow(
+      expect(() => assertValidTransition(AnalysisStatus.uploaded, AnalysisStatus.approved)).toThrow(
         BadRequestException,
       );
     });
 
     it('should include current and next status in error message', () => {
       try {
-        assertValidTransition('clean' as any, 'uploaded' as any);
+        assertValidTransition(AnalysisStatus.clean, AnalysisStatus.uploaded);
         fail('Expected BadRequestException');
       } catch (e) {
         expect(e).toBeInstanceOf(BadRequestException);
@@ -85,7 +90,7 @@ describe('status-transition.helper', () => {
 
     it('should list allowed transitions in error message', () => {
       try {
-        assertValidTransition('uploaded' as any, 'clean' as any);
+        assertValidTransition(AnalysisStatus.uploaded, AnalysisStatus.clean);
         fail('Expected BadRequestException');
       } catch (e) {
         expect((e as BadRequestException).message).toContain('processing_ai');
@@ -95,33 +100,40 @@ describe('status-transition.helper', () => {
 
   describe('getAllowedNextStatuses', () => {
     it('should return [processing_ai] for uploaded', () => {
-      expect(getAllowedNextStatuses('uploaded' as any)).toEqual(['processing_ai']);
+      expect(getAllowedNextStatuses(AnalysisStatus.uploaded)).toEqual([
+        AnalysisStatus.processing_ai,
+      ]);
     });
 
     it('should return [clean, flagged_ai] for processing_ai', () => {
-      expect(getAllowedNextStatuses('processing_ai' as any)).toEqual(['clean', 'flagged_ai']);
+      expect(getAllowedNextStatuses(AnalysisStatus.processing_ai)).toEqual([
+        AnalysisStatus.clean,
+        AnalysisStatus.flagged_ai,
+      ]);
     });
 
     it('should return [under_review] for flagged_ai', () => {
-      expect(getAllowedNextStatuses('flagged_ai' as any)).toEqual(['under_review']);
+      expect(getAllowedNextStatuses(AnalysisStatus.flagged_ai)).toEqual([
+        AnalysisStatus.under_review,
+      ]);
     });
 
     it('should return [confirmed_human, rejected_human] for under_review', () => {
-      expect(getAllowedNextStatuses('under_review' as any)).toEqual([
-        'confirmed_human',
-        'rejected_human',
+      expect(getAllowedNextStatuses(AnalysisStatus.under_review)).toEqual([
+        AnalysisStatus.confirmed_human,
+        AnalysisStatus.rejected_human,
       ]);
     });
 
     it('should return [approved, rejected_supervisor] for confirmed_human', () => {
-      expect(getAllowedNextStatuses('confirmed_human' as any)).toEqual([
-        'approved',
-        'rejected_supervisor',
+      expect(getAllowedNextStatuses(AnalysisStatus.confirmed_human)).toEqual([
+        AnalysisStatus.approved,
+        AnalysisStatus.rejected_supervisor,
       ]);
     });
 
     it.each(TERMINAL)('should return empty array for terminal state %s', (terminal) => {
-      expect(getAllowedNextStatuses(terminal as any)).toEqual([]);
+      expect(getAllowedNextStatuses(terminal)).toEqual([]);
     });
   });
 });

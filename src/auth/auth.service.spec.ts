@@ -53,14 +53,20 @@ function createMockConfig() {
 }
 
 /** Helper: make the cosmos query return a specific user */
-function mockQueryReturns(cosmos: ReturnType<typeof createMockCosmos>, user: typeof ACTIVE_USER | null) {
+function mockQueryReturns(
+  cosmos: ReturnType<typeof createMockCosmos>,
+  user: typeof ACTIVE_USER | null,
+) {
   cosmos.users.items.query.mockReturnValue({
     fetchAll: jest.fn().mockResolvedValue({ resources: user ? [user] : [] }),
   });
 }
 
 /** Helper: make cosmos item().read() return a specific user */
-function mockItemRead(cosmos: ReturnType<typeof createMockCosmos>, user: typeof ACTIVE_USER | null) {
+function mockItemRead(
+  cosmos: ReturnType<typeof createMockCosmos>,
+  user: typeof ACTIVE_USER | null,
+) {
   cosmos.users.item.mockReturnValue({
     read: jest.fn().mockResolvedValue({ resource: user }),
     replace: jest.fn().mockResolvedValue(undefined),

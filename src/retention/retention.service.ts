@@ -33,12 +33,18 @@ export class RetentionService {
     const current = await this.get();
     const updatedDoc = {
       ...current,
-      ...(dto.standardRetentionDays != null && { standardRetentionDays: dto.standardRetentionDays }),
-      ...(dto.extendedRetentionDays != null && { extendedRetentionDays: dto.extendedRetentionDays }),
+      ...(dto.standardRetentionDays != null && {
+        standardRetentionDays: dto.standardRetentionDays,
+      }),
+      ...(dto.extendedRetentionDays != null && {
+        extendedRetentionDays: dto.extendedRetentionDays,
+      }),
       updatedById: actorId,
       updatedAt: new Date().toISOString(),
     };
-    const { resource } = await this.cosmos.retentionPolicy.item(POLICY_ID, POLICY_ID).replace(updatedDoc);
+    const { resource } = await this.cosmos.retentionPolicy
+      .item(POLICY_ID, POLICY_ID)
+      .replace(updatedDoc);
     return resource;
   }
 }
