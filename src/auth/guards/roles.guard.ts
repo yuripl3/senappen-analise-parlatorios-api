@@ -21,7 +21,7 @@ export class RolesGuard implements CanActivate {
     const { user } = ctx.switchToHttp().getRequest<Request & { user: JwtPayload }>();
 
     // Hierarchy check: user must have at least the minimum required role level
-    const userRole = user?.role as UserRole;
+    const userRole = user?.role;
     const hasRole = required.some((role) => hasMinRole(userRole, role));
 
     if (!hasRole) {

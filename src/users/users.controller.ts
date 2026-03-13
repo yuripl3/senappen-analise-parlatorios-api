@@ -23,7 +23,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List all users' })
+  @Roles(UserRole.supervisor)
+  @ApiOperation({ summary: 'List all users', description: 'Supervisor+ can list users.' })
   @ApiOkResponse({ description: 'List of users (passwordHash excluded).' })
   findAll() {
     return this.usersService.findAll();
@@ -49,7 +50,8 @@ export class UsersController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a user by ID' })
+  @Roles(UserRole.supervisor)
+  @ApiOperation({ summary: 'Get a user by ID', description: 'Supervisor+ can view user details.' })
   @ApiParam({ name: 'id', description: 'User UUID' })
   @ApiOkResponse({ description: 'User detail (passwordHash excluded).' })
   findOne(@Param('id') id: string) {
@@ -68,10 +70,11 @@ export class UsersController {
   }
 
   @Patch(':id')
+  @Roles(UserRole.admin)
   @ApiOperation({
     summary: 'Update a user',
     description:
-      'Update name, email, roles, or active status. Password changes not supported here.',
+      'Update name, email, role, units, or active status. Admin only. Password changes not supported here.',
   })
   @ApiParam({ name: 'id', description: 'User UUID' })
   @ApiOkResponse({ description: 'Updated user.' })

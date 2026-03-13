@@ -17,9 +17,10 @@ export class RetentionController {
   constructor(private readonly retentionService: RetentionService) {}
 
   @Get()
+  @Roles(UserRole.supervisor)
   @ApiOperation({
     summary: 'Get retention policy',
-    description: 'Returns the current global retention policy settings.',
+    description: 'Returns the current global retention policy settings. Supervisor+ only.',
   })
   @ApiOkResponse({ description: 'Current retention policy.' })
   get() {

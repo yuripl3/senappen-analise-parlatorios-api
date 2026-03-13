@@ -5,7 +5,7 @@
  * All users share the password: senhaSegura123
  */
 
-import { CosmosClient } from '@azure/cosmos';
+import { CosmosClient, Database, Container } from '@azure/cosmos';
 import * as bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
 
@@ -90,14 +90,16 @@ async function main() {
     process.exit(1);
   }
 
-  const client = new CosmosClient({ endpoint, key });
+  const client: CosmosClient = new CosmosClient({ endpoint, key });
 
   // Create database if needed
-  const { database } = await client.databases.createIfNotExists({ id: databaseId });
+  const { database }: { database: Database } = await client.databases.createIfNotExists({
+    id: databaseId,
+  });
   console.log(`Database: ${databaseId}`);
 
   // Create users container if needed
-  const { container } = await database.containers.createIfNotExists({
+  const { container }: { container: Container } = await database.containers.createIfNotExists({
     id: 'users',
     partitionKey: { paths: ['/id'] },
   });
@@ -127,10 +129,11 @@ async function main() {
   }
 
   // Create default retention policy
-  const { container: retentionContainer } = await database.containers.createIfNotExists({
-    id: 'retentionPolicy',
-    partitionKey: { paths: ['/id'] },
-  });
+  const { container: retentionContainer }: { container: Container } =
+    await database.containers.createIfNotExists({
+      id: 'retentionPolicy',
+      partitionKey: { paths: ['/id'] },
+    });
 
   await retentionContainer.items.upsert({
     id: 'global',

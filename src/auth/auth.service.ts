@@ -6,12 +6,14 @@ import { CosmosService } from '@/database/cosmos.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './decorators/current-user.decorator';
 
+import { UserRole } from '@/common/constants/enums';
+
 interface CosmosUserDoc {
   id: string;
   name: string;
   email: string;
   passwordHash: string;
-  role: string;
+  role: UserRole;
   units: string[];
   active: boolean;
   lastLogin: string | null;
@@ -88,7 +90,7 @@ export class AuthService {
     id: string;
     name: string;
     email: string;
-    role: string;
+    role: UserRole;
     units?: string[];
   }) {
     const basePayload: JwtPayload = {

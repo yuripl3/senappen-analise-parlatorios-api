@@ -1,10 +1,16 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { CosmosService } from '@/database/cosmos.service';
-import { AnalysisStatus, RetentionStatus, VisitorType } from '@/common/constants/enums';
+import {
+  AnalysisStatus,
+  RetentionStatus,
+  UserRole,
+  VisitorType,
+  hasMinRole,
+} from '@/common/constants/enums';
 import { CreateRecordDto } from './dto/create-record.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { QueryRecordsDto } from './dto/query-records.dto';
@@ -20,6 +26,7 @@ import {
 } from './mappers/record.mapper';
 import { StorageService } from '@/storage/storage.service';
 import { ServiceBusService } from '@/worker/servicebus.service';
+import type { JwtPayload } from '@/auth/decorators/current-user.decorator';
 
 /** Shape of a record document stored in Cosmos DB */
 interface CosmosRecordDoc {
@@ -74,7 +81,7 @@ export class RecordsService {
     this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
   }
 
-  async findAll(query: QueryRecordsDto) {
+  async findAll(query: QueryRecordsDto, actor?: JwtPayload) {
     const {
       page = 1,
       limit = 20,
@@ -96,6 +103,11 @@ export class RecordsService {
         if (unit && !r.unit.toLowerCase().includes(unit.toLowerCase())) return false;
         if (from && r.recordedAt < new Date(from)) return false;
         if (to && r.recordedAt > new Date(to)) return false;
+        // Unit scoping: non-admin users can only see records from their units
+        if (actor && !hasMinRole(actor.role, UserRole.admin) && actor.units.length > 0) {
+          if (!actor.units.some((u) => r.unit.toLowerCase().includes(u.toLowerCase())))
+            return false;
+        }
         return true;
       });
       const total = items.length;
@@ -109,6 +121,12 @@ export class RecordsService {
     // ── Cosmos DB mode ─────────────────────────────────────────────────────
     const conditions: string[] = [];
     const parameters: { name: string; value: string | number | boolean }[] = [];
+
+    // Unit scoping: non-admin users see only records from their assigned units
+    if (actor && !hasMinRole(actor.role, UserRole.admin) && actor.units.length > 0) {
+      conditions.push('ARRAY_CONTAINS(@actorUnits, c.unit)');
+      parameters.push({ name: '@actorUnits', value: actor.units as unknown as string });
+    }
 
     if (status) {
       conditions.push('c.analysisStatus = @status');
@@ -183,17 +201,19 @@ export class RecordsService {
     }
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: JwtPayload) {
     // ── Mock mode ──────────────────────────────────────────────────────────
     if (this.useMockData) {
       const record = MOCK_RECORDS.find((r) => r.id === id);
       if (!record) throw new NotFoundException(`Record ${id} not found`);
+      this.assertUnitAccess(record.unit, actor);
       return mapMockRecordDetail(record);
     }
 
     // ── Cosmos DB mode ─────────────────────────────────────────────────────
     const { resource: record } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
+    this.assertUnitAccess(record.unit, actor);
 
     // Fetch audit logs for this record
     const { resources: auditLogs } = await this.cosmos.auditLogs.items
@@ -504,9 +524,10 @@ export class RecordsService {
 
   // ── Audit log ──────────────────────────────────────────────────────────────
 
-  async getAudit(id: string) {
+  async getAudit(id: string, actor?: JwtPayload) {
     const { resource } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
     if (!resource) throw new NotFoundException(`Record ${id} not found`);
+    this.assertUnitAccess(resource.unit, actor);
 
     const { resources: logs } = await this.cosmos.auditLogs.items
       .query<CosmosAuditLogDoc>({
@@ -535,6 +556,94 @@ export class RecordsService {
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Throws ForbiddenException if the actor is not admin and the record's unit
+   * is not in the actor's assigned units.
+   */
+  private assertUnitAccess(recordUnit: string, actor?: JwtPayload): void {
+    if (!actor) return;
+    if (hasMinRole(actor.role, UserRole.admin)) return;
+    if (actor.units.length === 0) return; // no unit restriction
+    const allowed = actor.units.some((u) => u.toLowerCase() === recordUnit.toLowerCase());
+    if (!allowed) {
+      throw new ForbiddenException('Acesso negado: registro fora das suas unidades.');
+    }
+  }
+
+  /**
+   * Statuses considered "pre-analysis" — records in these statuses can be
+   * deleted by a cadastrador (owner) or analista (owner).
+   */
+  private static readonly PRE_ANALYSIS_STATUSES: ReadonlySet<AnalysisStatus> = new Set([
+    AnalysisStatus.uploaded,
+    AnalysisStatus.processing_ai,
+    AnalysisStatus.clean,
+    AnalysisStatus.flagged_ai,
+    AnalysisStatus.under_review,
+  ]);
+
+  /**
+   * Delete a record with role-based permission enforcement:
+   * - cadastrador: own records only, status before confirmed_human/rejected_human
+   * - analista: own records in initial/pre-analysis statuses
+   * - supervisor: any record within their units (broad)
+   * - admin: unrestricted
+   */
+  async remove(id: string, actor: JwtPayload) {
+    const { resource: record } = await this.cosmos.records.item(id, id).read<CosmosRecordDoc>();
+    if (!record) throw new NotFoundException(`Record ${id} not found`);
+
+    // Unit access check (non-admin must be in the record's unit)
+    this.assertUnitAccess(record.unit, actor);
+
+    const role = actor.role;
+    const isOwner = record.uploadedById === actor.sub;
+    const preAnalysis = RecordsService.PRE_ANALYSIS_STATUSES.has(record.analysisStatus);
+
+    if (hasMinRole(role, UserRole.admin)) {
+      // admin — unrestricted
+    } else if (hasMinRole(role, UserRole.supervisor)) {
+      // supervisor — any record within their units (already checked above)
+    } else if (hasMinRole(role, UserRole.analista)) {
+      // analista — own records in pre-analysis statuses
+      if (!isOwner) {
+        throw new ForbiddenException('Analista só pode excluir seus próprios registros.');
+      }
+      if (!preAnalysis) {
+        throw new ForbiddenException('Analista não pode excluir registros já analisados.');
+      }
+    } else if (hasMinRole(role, UserRole.cadastrador)) {
+      // cadastrador — own records only, before confirmed_human/rejected_human
+      if (!isOwner) {
+        throw new ForbiddenException('Cadastrador só pode excluir seus próprios registros.');
+      }
+      if (!preAnalysis) {
+        throw new ForbiddenException('Cadastrador não pode excluir registros já analisados.');
+      }
+    } else {
+      throw new ForbiddenException('Leitor não pode excluir registros.');
+    }
+
+    // Perform deletion
+    await this.cosmos.records.item(id, id).delete();
+
+    // Write audit log
+    const now = new Date().toISOString();
+    await this.cosmos.auditLogs.items.create({
+      id: crypto.randomUUID(),
+      recordId: id,
+      userId: actor.sub,
+      user: { id: actor.sub, name: actor.name, role: actor.role },
+      action: 'delete',
+      previousStatus: record.analysisStatus,
+      nextStatus: null,
+      notes: `Record deleted by ${actor.role}`,
+      createdAt: now,
+    });
+
+    return { id, deleted: true };
+  }
 
   private async getUserName(userId: string): Promise<string> {
     try {

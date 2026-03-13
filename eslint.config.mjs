@@ -62,6 +62,20 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-assignment': 'off',
     },
   },
+  // ── Standalone scripts ──────────────────────────────────────────────────
+  // Seed / migration scripts use @azure/cosmos directly. The SDK's .d.ts
+  // files include @ts-nocheck, so members are unresolvable — producing
+  // false-positive unsafe-* hits on every Cosmos call.
+  {
+    files: ['scripts/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-construction': 'off',
+    },
+  },
   // ── Test files ────────────────────────────────────────────────────────────
   // `unbound-method`: Jest mocks have no real `this`, so patterns like
   //   `expect(service.method).toHaveBeenCalled()` are false positives.

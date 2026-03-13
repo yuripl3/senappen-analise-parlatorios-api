@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   NotFoundException,
   Param,
@@ -34,38 +35,45 @@ import { UploadRecordDto } from './dto/upload-record.dto';
 import { BulkActionDto } from './dto/bulk-action.dto';
 import { UpdateUserCommentsDto } from './dto/update-user-comments.dto';
 import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@/auth/guards/roles.guard';
+import { Roles } from '@/auth/decorators/roles.decorator';
 import { CurrentUser } from '@/auth/decorators/current-user.decorator';
 import type { JwtPayload } from '@/auth/decorators/current-user.decorator';
+import { UserRole } from '@/common/constants/enums';
 
 @ApiTags('records')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('records')
 export class RecordsController {
   constructor(private readonly recordsService: RecordsService) {}
 
   @Get()
+  @Roles(UserRole.leitor)
   @ApiOperation({
     summary: 'List records',
-    description: 'Returns a paginated list of visit records with optional filters.',
+    description:
+      'Returns a paginated list of visit records with optional filters. Unit-scoped for non-admins.',
   })
   @ApiOkResponse({ description: 'Paginated list of records.' })
-  findAll(@Query() query: QueryRecordsDto) {
-    return this.recordsService.findAll(query);
+  findAll(@Query() query: QueryRecordsDto, @CurrentUser() actor: JwtPayload) {
+    return this.recordsService.findAll(query, actor);
   }
 
   @Get(':id')
+  @Roles(UserRole.leitor)
   @ApiOperation({
     summary: 'Get a record',
-    description: 'Returns full record detail including audit log.',
+    description: 'Returns full record detail including audit log. Unit-scoped for non-admins.',
   })
   @ApiParam({ name: 'id', description: 'Record UUID' })
   @ApiOkResponse({ description: 'Record detail.' })
-  findOne(@Param('id') id: string) {
-    return this.recordsService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
+    return this.recordsService.findOne(id, actor);
   }
 
   @Get(':id/stream')
+  @Roles(UserRole.leitor)
   @ApiOperation({
     summary: 'Stream the video file for a record',
     description:
@@ -116,17 +124,19 @@ export class RecordsController {
   }
 
   @Get(':id/audit')
+  @Roles(UserRole.analista)
   @ApiOperation({
     summary: 'Get audit log for a record',
-    description: 'Returns the full audit log history for a specific record.',
+    description: 'Returns the full audit log history for a specific record. Analyst+ only.',
   })
   @ApiParam({ name: 'id', description: 'Record UUID' })
   @ApiOkResponse({ description: 'Audit log entries.' })
-  getAudit(@Param('id') id: string) {
-    return this.recordsService.getAudit(id);
+  getAudit(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
+    return this.recordsService.getAudit(id, actor);
   }
 
   @Post()
+  @Roles(UserRole.cadastrador)
   @ApiOperation({
     summary: 'Create a record (JSON)',
     description: 'Creates a new visit record without a file. Status starts at `uploaded`.',
@@ -137,6 +147,7 @@ export class RecordsController {
   }
 
   @Post('upload')
+  @Roles(UserRole.cadastrador)
   @ApiOperation({
     summary: 'Upload video + metadata',
     description:
@@ -155,6 +166,7 @@ export class RecordsController {
   }
 
   @Post('bulk-action')
+  @Roles(UserRole.supervisor)
   @ApiOperation({
     summary: 'Bulk archive or restore records',
     description: 'Performs an archive or restore action on multiple records at once.',
@@ -165,6 +177,7 @@ export class RecordsController {
   }
 
   @Patch(':id/status')
+  @Roles(UserRole.analista)
   @ApiOperation({
     summary: 'Transition record status',
     description:
@@ -183,6 +196,7 @@ export class RecordsController {
   }
 
   @Patch(':id/archive')
+  @Roles(UserRole.admin)
   @ApiOperation({
     summary: 'Archive a record',
     description: 'Sets retentionStatus to `archived`, records archivedAt and archivedById.',
@@ -194,6 +208,7 @@ export class RecordsController {
   }
 
   @Patch(':id/restore')
+  @Roles(UserRole.admin)
   @ApiOperation({
     summary: 'Restore an archived record',
     description: 'Resets retentionStatus to `retention_standard` and clears archive fields.',
@@ -205,6 +220,7 @@ export class RecordsController {
   }
 
   @Patch(':id/user-comments')
+  @Roles(UserRole.analista)
   @ApiOperation({
     summary: "Update per-line user comments on a record's transcription",
     description: 'Stores user-authored per-line comments/tags alongside the AI transcription.',
@@ -213,5 +229,22 @@ export class RecordsController {
   @ApiOkResponse({ description: 'Updated user comments.' })
   updateUserComments(@Param('id') id: string, @Body() dto: UpdateUserCommentsDto) {
     return this.recordsService.updateUserComments(id, dto.comments);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.cadastrador)
+  @ApiOperation({
+    summary: 'Delete a record',
+    description:
+      'Deletes a record. Permission depends on user role:\n' +
+      '- cadastrador: own records only, before confirmed_human/rejected_human status.\n' +
+      '- analista: own records in initial statuses.\n' +
+      '- supervisor: any record within their units.\n' +
+      '- admin: unrestricted.',
+  })
+  @ApiParam({ name: 'id', description: 'Record UUID' })
+  @ApiOkResponse({ description: 'Deleted record ID.' })
+  remove(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
+    return this.recordsService.remove(id, actor);
   }
 }

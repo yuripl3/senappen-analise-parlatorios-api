@@ -1,11 +1,12 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { Request } from 'express';
+import { UserRole } from '@/common/constants/enums';
 
 export interface JwtPayload {
   sub: string;
   email: string;
   name: string;
-  role: string;
+  role: UserRole;
   units: string[];
   iat?: number;
   exp?: number;
