@@ -1,5 +1,4 @@
 import {
-  IsBoolean,
   IsDateString,
   IsEnum,
   IsNotEmpty,
@@ -10,17 +9,18 @@ import {
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { VisitorType } from '@/generated/prisma/enums';
 
-export class CreateRecordDto {
+/**
+ * DTO for the multipart/form-data upload endpoint (POST /records/upload).
+ * All fields arrive as form text fields alongside the `video` file part.
+ */
+export class UploadRecordDto {
   @ApiProperty({ description: 'Full name of the detainee.', example: 'João Silva' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   detaineeName!: string;
 
-  @ApiPropertyOptional({
-    description: 'Prison registration code of the detainee.',
-    example: 'SP-2024-00123',
-  })
+  @ApiPropertyOptional({ description: 'Prison registration code.', example: 'SP-2026-00123' })
   @IsOptional()
   @IsString()
   @MaxLength(50)
@@ -34,18 +34,18 @@ export class CreateRecordDto {
 
   @ApiProperty({
     enum: Object.values(VisitorType as Record<string, string>),
-    description: 'Type of visit.',
+    description: 'Visit type enum value.',
   })
   @IsEnum(VisitorType as object)
   visitorType!: VisitorType;
 
-  @ApiProperty({ description: 'Prison unit where the visit took place.', example: 'CDP Guarulhos' })
+  @ApiProperty({ description: 'Prison unit.', example: 'CDP Guarulhos' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   unit!: string;
 
-  @ApiPropertyOptional({ description: 'Wing or block within the unit.', example: 'Vivência A' })
+  @ApiPropertyOptional({ description: 'Wing / block.', example: 'Vivência A' })
   @IsOptional()
   @IsString()
   @MaxLength(100)
@@ -58,17 +58,9 @@ export class CreateRecordDto {
   @IsDateString()
   recordedAt!: string;
 
-  @ApiProperty({ description: 'Equipment ID used to record the visit.', example: 'CAM-01' })
+  @ApiProperty({ description: 'Equipment ID.', example: 'CAM-01' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   equipment!: string;
-
-  @ApiPropertyOptional({
-    description: 'Whether media (video file) is already available.',
-    default: false,
-  })
-  @IsOptional()
-  @IsBoolean()
-  mediaAvailable?: boolean;
 }

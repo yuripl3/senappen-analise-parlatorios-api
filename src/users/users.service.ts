@@ -1,12 +1,33 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { ConfigService } from '@nestjs/config';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@/database/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { MOCK_USERS } from '@/mock/mock-data';
 
-// TODO: replace with bcrypt once auth module is implemented
-function hashPassword(plain: string): string {
-  return createHash('sha256').update(plain).digest('hex');
+const BCRYPT_ROUNDS = 12;
+
+function mapUser(u: {
+  id: string;
+  name: string;
+  email: string;
+  roles: string[];
+  active: boolean;
+  lastLogin: Date | null;
+}) {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const formatDate = (d: Date) =>
+    `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    roles: u.roles,
+    active: u.active,
+    lastLogin: u.lastLogin ? formatDate(u.lastLogin) : 'Nunca',
+  };
 }
 
 const USER_SELECT = {
@@ -23,22 +44,44 @@ const USER_SELECT = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly useMockData: boolean;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
+    this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
+  }
 
   findAll() {
-    return this.prisma.user.findMany({
-      select: USER_SELECT,
-      orderBy: { name: 'asc' },
-    });
+    if (this.useMockData) {
+      return Promise.resolve(MOCK_USERS.map(mapUser));
+    }
+    return this.prisma.user
+      .findMany({
+        select: USER_SELECT,
+        orderBy: { name: 'asc' },
+      })
+      .then((users) => users.map(mapUser));
   }
 
   async findOne(id: string) {
+    if (this.useMockData) {
+      const user = MOCK_USERS.find((u) => u.id === id);
+      if (!user) throw new NotFoundException(`User ${id} not found`);
+      return mapUser(user);
+    }
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: USER_SELECT,
     });
     if (!user) throw new NotFoundException(`User ${id} not found`);
-    return user;
+    return mapUser(user);
+  }
+
+  async findByEmail(email: string) {
+    // Always hits DB — needed by AuthService for real password validation
+    return this.prisma.user.findUnique({ where: { email } });
   }
 
   async create(dto: CreateUserDto) {
@@ -51,7 +94,7 @@ export class UsersService {
       data: {
         name: dto.name,
         email: dto.email,
-        passwordHash: hashPassword(dto.password),
+        passwordHash: await bcrypt.hash(dto.password, BCRYPT_ROUNDS),
         roles: dto.roles,
         active: dto.active ?? true,
       },
@@ -74,5 +117,50 @@ export class UsersService {
       data: dto,
       select: USER_SELECT,
     });
+  }
+
+  async findAllAuditLogs(params: { page?: number; limit?: number; search?: string }) {
+    const { page = 1, limit = 50, search } = params;
+    const skip = (page - 1) * limit;
+
+    if (this.useMockData) {
+      return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+    }
+
+    const where = search
+      ? {
+          OR: [
+            { action: { contains: search, mode: 'insensitive' as const } },
+            { user: { name: { contains: search, mode: 'insensitive' as const } } },
+          ],
+        }
+      : undefined;
+
+    const [total, logs] = await this.prisma.$transaction([
+      this.prisma.auditLog.count({ where }),
+      this.prisma.auditLog.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: { id: true, name: true, roles: true } } },
+      }),
+    ]);
+
+    return {
+      data: logs.map((log) => ({
+        id: log.id,
+        recordId: log.recordId ?? undefined,
+        userId: log.userId,
+        user: log.user.name,
+        userRole: log.user.roles[0] ?? 'unknown',
+        action: log.action,
+        previousStatus: log.previousStatus,
+        nextStatus: log.nextStatus,
+        notes: log.notes,
+        timestamp: log.createdAt.toISOString(),
+      })),
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
   }
 }

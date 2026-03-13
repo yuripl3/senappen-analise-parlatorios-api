@@ -67,11 +67,12 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  uploadedRecords   Record[]   @relation("uploader")
-  archivedRecords   Record[]   @relation("archiver")
-  analystRecords    Record[]   @relation("analyst")
-  supervisorRecords Record[]   @relation("supervisor")
+  uploadedRecords   Record[]          @relation("uploader")
+  archivedRecords   Record[]          @relation("archiver")
+  analystRecords    Record[]          @relation("analyst")
+  supervisorRecords Record[]          @relation("supervisor")
   auditLogs         AuditLog[]
+  retentionPolicies RetentionPolicy[]
 }
 
 model Record {
@@ -80,7 +81,6 @@ model Record {
   // Detainee
   detaineeName String
   detaineeCode String?
-  detaineeCell String?
 
   // Visitor
   visitorName String
@@ -125,6 +125,7 @@ model Record {
   // AI outputs (stored as JSON)
   transcription     Json?
   canonicalAnalysis Json?
+  userComments      Json?
 
   // Archival
   archivedAt   DateTime?
@@ -148,4 +149,14 @@ model AuditLog {
   nextStatus     AnalysisStatus?
   notes          String?
   createdAt      DateTime        @default(now())
+}
+
+/// Singleton retention policy settings. Always upsert with id = "global".
+model RetentionPolicy {
+  id                    String   @id @default("global")
+  standardRetentionDays Int      @default(30)
+  extendedRetentionDays Int      @default(90)
+  updatedAt             DateTime @updatedAt
+  updatedById           String?
+  updatedBy             User?    @relation(fields: [updatedById], references: [id])
 }
