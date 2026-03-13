@@ -48,6 +48,7 @@ function createMockJwt() {
 
 function createMockConfig() {
   return {
+    get: jest.fn().mockReturnValue(undefined),
     getOrThrow: jest.fn().mockReturnValue('test-jwt-secret-at-least-16'),
   };
 }

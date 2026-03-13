@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { CosmosService } from '@/database/cosmos.service';
+import { MOCK_USERS } from '@/mock/mock-data';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './decorators/current-user.decorator';
 
@@ -21,11 +22,15 @@ interface CosmosUserDoc {
 
 @Injectable()
 export class AuthService {
+  private readonly useMockData: boolean;
+
   constructor(
     private readonly cosmos: CosmosService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
-  ) {}
+  ) {
+    this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
+  }
 
   // ─── Login ───────────────────────────────────────────────────────────────
 
@@ -43,7 +48,9 @@ export class AuthService {
 
     // Update lastLogin
     const updatedUser = { ...user, lastLogin: new Date().toISOString() };
-    await this.cosmos.users.item(user.id, user.id).replace(updatedUser);
+    if (!this.useMockData) {
+      await this.cosmos.users.item(user.id, user.id).replace(updatedUser);
+    }
 
     return this.buildTokenResponse(updatedUser);
   }
@@ -64,9 +71,21 @@ export class AuthService {
       throw new UnauthorizedException('Token inválido.');
     }
 
-    const { resource: user } = await this.cosmos.users
-      .item(payload.sub, payload.sub)
-      .read<CosmosUserDoc>();
+    let user: CosmosUserDoc | undefined;
+    if (this.useMockData) {
+      const mock = MOCK_USERS.find((u) => u.id === payload.sub);
+      if (mock) {
+        user = {
+          ...mock,
+          lastLogin: mock.lastLogin?.toISOString() ?? null,
+        };
+      }
+    } else {
+      const { resource } = await this.cosmos.users
+        .item(payload.sub, payload.sub)
+        .read<CosmosUserDoc>();
+      user = resource;
+    }
     if (!user || !user.active) {
       throw new NotFoundException('Usuário não encontrado ou inativo.');
     }
@@ -77,6 +96,14 @@ export class AuthService {
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   private async findUserByEmail(email: string): Promise<CosmosUserDoc | null> {
+    if (this.useMockData) {
+      const mock = MOCK_USERS.find((u) => u.email === email);
+      if (!mock) return null;
+      return {
+        ...mock,
+        lastLogin: mock.lastLogin?.toISOString() ?? null,
+      };
+    }
     const { resources } = await this.cosmos.users.items
       .query<CosmosUserDoc>({
         query: 'SELECT * FROM c WHERE c.email = @email',
