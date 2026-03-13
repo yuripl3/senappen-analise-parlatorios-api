@@ -27,9 +27,13 @@ export const TRANSCRIPTION_QUEUE = 'transcription';
 @Injectable()
 export class ServiceBusService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ServiceBusService.name);
-  private client: ServiceBusClient | null = null;
-  private sender: ServiceBusSender | null = null;
-  private receiver: ServiceBusReceiver | null = null;
+  // @azure/service-bus transitive deps use @ts-nocheck, causing the TS
+  // language server to flag these as "error types". tsc --noEmit (with
+  // skipLibCheck) passes cleanly. Using optional properties avoids the
+  // union-with-error-type diagnostic.
+  private client?: ServiceBusClient;
+  private sender?: ServiceBusSender;
+  private receiver?: ServiceBusReceiver;
   private readonly connectionString: string | undefined;
   private readonly useMock: boolean;
   private messageHandler: ((data: TranscribeJobData) => Promise<void>) | null = null;
