@@ -1,7 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import { PrismaService } from '@/database/prisma.service';
+import * as crypto from 'crypto';
+import { CosmosService } from '@/database/cosmos.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { MOCK_USERS } from '@/mock/mock-data';
@@ -12,42 +13,34 @@ function mapUser(u: {
   id: string;
   name: string;
   email: string;
-  roles: string[];
+  role: string;
+  units: string[];
   active: boolean;
-  lastLogin: Date | null;
+  lastLogin: Date | string | null;
 }) {
   const pad = (n: number) => String(n).padStart(2, '0');
   const formatDate = (d: Date) =>
     `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
+  const lastLoginDate = u.lastLogin instanceof Date ? u.lastLogin : u.lastLogin ? new Date(u.lastLogin) : null;
+
   return {
     id: u.id,
     name: u.name,
     email: u.email,
-    roles: u.roles,
+    role: u.role,
+    units: u.units ?? [],
     active: u.active,
-    lastLogin: u.lastLogin ? formatDate(u.lastLogin) : 'Nunca',
+    lastLogin: lastLoginDate ? formatDate(lastLoginDate) : 'Nunca',
   };
 }
-
-const USER_SELECT = {
-  id: true,
-  name: true,
-  email: true,
-  roles: true,
-  active: true,
-  lastLogin: true,
-  createdAt: true,
-  updatedAt: true,
-  // never expose passwordHash
-} as const;
 
 @Injectable()
 export class UsersService {
   private readonly useMockData: boolean;
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly cosmos: CosmosService,
     private readonly config: ConfigService,
   ) {
     this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
@@ -57,12 +50,10 @@ export class UsersService {
     if (this.useMockData) {
       return Promise.resolve(MOCK_USERS.map(mapUser));
     }
-    return this.prisma.user
-      .findMany({
-        select: USER_SELECT,
-        orderBy: { name: 'asc' },
-      })
-      .then((users) => users.map(mapUser));
+    return this.cosmos.users.items
+      .query({ query: 'SELECT c.id, c.name, c.email, c.role, c.units, c.active, c.lastLogin FROM c ORDER BY c.name ASC' })
+      .fetchAll()
+      .then(({ resources }) => resources.map(mapUser));
   }
 
   async findOne(id: string) {
@@ -71,52 +62,65 @@ export class UsersService {
       if (!user) throw new NotFoundException(`User ${id} not found`);
       return mapUser(user);
     }
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: USER_SELECT,
-    });
+    const { resource: user } = await this.cosmos.users.item(id, id).read();
     if (!user) throw new NotFoundException(`User ${id} not found`);
     return mapUser(user);
   }
 
   async findByEmail(email: string) {
-    // Always hits DB — needed by AuthService for real password validation
-    return this.prisma.user.findUnique({ where: { email } });
+    if (this.useMockData) {
+      return MOCK_USERS.find((u) => u.email === email) ?? null;
+    }
+    const { resources } = await this.cosmos.users.items
+      .query({
+        query: 'SELECT * FROM c WHERE c.email = @email',
+        parameters: [{ name: '@email', value: email }],
+      })
+      .fetchAll();
+    return resources[0] ?? null;
   }
 
   async create(dto: CreateUserDto) {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
+    const existing = await this.findByEmail(dto.email);
     if (existing) throw new ConflictException(`Email ${dto.email} is already in use`);
 
-    return this.prisma.user.create({
-      data: {
-        name: dto.name,
-        email: dto.email,
-        passwordHash: await bcrypt.hash(dto.password, BCRYPT_ROUNDS),
-        roles: dto.roles,
-        active: dto.active ?? true,
-      },
-      select: USER_SELECT,
-    });
+    const now = new Date().toISOString();
+    const doc = {
+      id: crypto.randomUUID(),
+      name: dto.name,
+      email: dto.email,
+      passwordHash: await bcrypt.hash(dto.password, BCRYPT_ROUNDS),
+      role: dto.role,
+      units: dto.units ?? [],
+      active: dto.active ?? true,
+      lastLogin: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const { resource } = await this.cosmos.users.items.create(doc);
+    return mapUser(resource!);
   }
 
   async update(id: string, dto: UpdateUserDto) {
-    await this.findOne(id); // throws 404 if not found
+    const { resource: user } = await this.cosmos.users.item(id, id).read();
+    if (!user) throw new NotFoundException(`User ${id} not found`);
 
-    if (dto.email) {
-      const conflict = await this.prisma.user.findFirst({
-        where: { email: dto.email, NOT: { id } },
-      });
-      if (conflict) throw new ConflictException(`Email ${dto.email} is already in use`);
+    if (dto.email && dto.email !== user.email) {
+      const conflict = await this.findByEmail(dto.email);
+      if (conflict && conflict.id !== id) {
+        throw new ConflictException(`Email ${dto.email} is already in use`);
+      }
     }
 
-    return this.prisma.user.update({
-      where: { id },
-      data: dto,
-      select: USER_SELECT,
-    });
+    const updatedDoc = {
+      ...user,
+      ...dto,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const { resource } = await this.cosmos.users.item(id, id).replace(updatedDoc);
+    return mapUser(resource);
   }
 
   async findAllAuditLogs(params: { page?: number; limit?: number; search?: string }) {
@@ -127,38 +131,43 @@ export class UsersService {
       return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
     }
 
-    const where = search
-      ? {
-          OR: [
-            { action: { contains: search, mode: 'insensitive' as const } },
-            { user: { name: { contains: search, mode: 'insensitive' as const } } },
-          ],
-        }
-      : undefined;
+    // Build query with optional search
+    const conditions: string[] = [];
+    const parameters: { name: string; value: string | number | boolean }[] = [];
 
-    const [total, logs] = await this.prisma.$transaction([
-      this.prisma.auditLog.count({ where }),
-      this.prisma.auditLog.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: { user: { select: { id: true, name: true, roles: true } } },
-      }),
-    ]);
+    if (search) {
+      conditions.push('(CONTAINS(LOWER(c.action), @search) OR CONTAINS(LOWER(c.user.name), @search))');
+      parameters.push({ name: '@search', value: search.toLowerCase() });
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Count
+    const { resources: countResult } = await this.cosmos.auditLogs.items
+      .query({ query: `SELECT VALUE COUNT(1) FROM c ${whereClause}`, parameters })
+      .fetchAll();
+    const total = countResult[0] ?? 0;
+
+    // Paginated
+    const { resources: logs } = await this.cosmos.auditLogs.items
+      .query({
+        query: `SELECT * FROM c ${whereClause} ORDER BY c.createdAt DESC OFFSET @skip LIMIT @limit`,
+        parameters: [...parameters, { name: '@skip', value: skip }, { name: '@limit', value: limit }],
+      })
+      .fetchAll();
 
     return {
-      data: logs.map((log) => ({
+      data: logs.map((log: any) => ({
         id: log.id,
         recordId: log.recordId ?? undefined,
         userId: log.userId,
-        user: log.user.name,
-        userRole: log.user.roles[0] ?? 'unknown',
+        user: log.user?.name ?? 'Unknown',
+        userRole: log.user?.role ?? 'unknown',
         action: log.action,
         previousStatus: log.previousStatus,
         nextStatus: log.nextStatus,
         notes: log.notes,
-        timestamp: log.createdAt.toISOString(),
+        timestamp: log.createdAt,
       })),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };

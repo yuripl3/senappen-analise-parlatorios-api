@@ -13,7 +13,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '@/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '@/auth/guards/roles.guard';
 import { Roles } from '@/auth/decorators/roles.decorator';
-import { UserRole } from '@/generated/prisma/enums';
+import { UserRole } from '@/common/constants/enums';
 
 @ApiTags('users')
 @ApiBearerAuth()

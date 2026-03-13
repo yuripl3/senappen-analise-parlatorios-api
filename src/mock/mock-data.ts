@@ -4,7 +4,7 @@
  * after the `include` clauses (uploadedBy, archivedBy, auditLogs->user).
  */
 
-import { AnalysisStatus, RetentionStatus, UserRole, VisitorType } from '@/generated/prisma/enums';
+import { AnalysisStatus, RetentionStatus, UserRole, VisitorType } from '@/common/constants/enums';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -13,7 +13,8 @@ export interface MockUser {
   name: string;
   email: string;
   passwordHash: string; // bcrypt of "senhaSegura123", 12 rounds
-  roles: UserRole[];
+  role: UserRole;
+  units: string[];
   active: boolean;
   lastLogin: Date | null;
   createdAt: Date;
@@ -24,7 +25,7 @@ export interface MockAuditLog {
   id: string;
   recordId: string | null;
   userId: string;
-  user: { id: string; name: string; roles: UserRole[] };
+  user: { id: string; name: string; role: UserRole };
   action: string;
   previousStatus: AnalysisStatus | null;
   nextStatus: AnalysisStatus | null;
@@ -63,7 +64,7 @@ export interface MockRecord {
   userComments: unknown;
   archivedAt: Date | null;
   archivedById: string | null;
-  archivedBy: { id: string; name: string; roles: UserRole[] } | null;
+  archivedBy: { id: string; name: string; role: UserRole } | null;
   auditLogs: MockAuditLog[];
   createdAt: Date;
   updatedAt: Date;
@@ -81,7 +82,8 @@ export const MOCK_USERS: MockUser[] = [
     name: 'Ana Silva',
     email: 'ana.silva@sistema.gov.br',
     passwordHash: '$2b$12$placeholderHashForMockUser1xxxxxxxxxxxxxxxxxxxxxxxxxx',
-    roles: [UserRole.supervisor, UserRole.admin],
+    role: UserRole.admin,
+    units: [],
     active: true,
     lastLogin: new Date('2026-02-19T10:30:00'),
     createdAt: new Date('2026-01-01'),
@@ -92,7 +94,8 @@ export const MOCK_USERS: MockUser[] = [
     name: 'Pedro Rocha',
     email: 'pedro.rocha@sistema.gov.br',
     passwordHash: '$2b$12$placeholderHashForMockUser2xxxxxxxxxxxxxxxxxxxxxxxxxx',
-    roles: [UserRole.analyst],
+    role: UserRole.analista,
+    units: ['Penitenciária Central'],
     active: true,
     lastLogin: new Date('2026-02-19T09:15:00'),
     createdAt: new Date('2026-01-01'),
@@ -103,7 +106,8 @@ export const MOCK_USERS: MockUser[] = [
     name: 'Carlos Lima',
     email: 'carlos.lima@sistema.gov.br',
     passwordHash: '$2b$12$placeholderHashForMockUser3xxxxxxxxxxxxxxxxxxxxxxxxxx',
-    roles: [UserRole.uploader],
+    role: UserRole.cadastrador,
+    units: ['Penitenciária Central'],
     active: true,
     lastLogin: new Date('2026-02-18T17:00:00'),
     createdAt: new Date('2026-01-01'),
@@ -114,7 +118,8 @@ export const MOCK_USERS: MockUser[] = [
     name: 'Fernanda Costa',
     email: 'fernanda.costa@sistema.gov.br',
     passwordHash: '$2b$12$placeholderHashForMockUser4xxxxxxxxxxxxxxxxxxxxxxxxxx',
-    roles: [UserRole.analyst, UserRole.supervisor],
+    role: UserRole.supervisor,
+    units: ['Penitenciária Central', 'Unidade Norte'],
     active: true,
     lastLogin: new Date('2026-02-17T11:00:00'),
     createdAt: new Date('2026-01-01'),
@@ -125,7 +130,8 @@ export const MOCK_USERS: MockUser[] = [
     name: 'Marcos Teixeira',
     email: 'marcos.t@sistema.gov.br',
     passwordHash: '$2b$12$placeholderHashForMockUser5xxxxxxxxxxxxxxxxxxxxxxxxxx',
-    roles: [UserRole.uploader],
+    role: UserRole.cadastrador,
+    units: ['Penitenciária Central'],
     active: false,
     lastLogin: new Date('2026-02-15T08:00:00'),
     createdAt: new Date('2026-01-01'),
@@ -136,9 +142,34 @@ export const MOCK_USERS: MockUser[] = [
     name: 'Juliana Neves',
     email: 'juliana.n@sistema.gov.br',
     passwordHash: '$2b$12$placeholderHashForMockUser6xxxxxxxxxxxxxxxxxxxxxxxxxx',
-    roles: [UserRole.analyst],
+    role: UserRole.analista,
+    units: ['Unidade Norte'],
     active: true,
     lastLogin: new Date('2026-02-19T08:45:00'),
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-02-19'),
+  },
+  {
+    id: 'mock-u7',
+    name: 'Maria Souza',
+    email: 'maria.souza@sistema.gov.br',
+    passwordHash: '$2b$12$placeholderHashForMockUser7xxxxxxxxxxxxxxxxxxxxxxxxxx',
+    role: UserRole.leitor,
+    units: ['Penitenciária Central'],
+    active: true,
+    lastLogin: new Date('2026-02-18T14:00:00'),
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-02-18'),
+  },
+  {
+    id: 'mock-u8',
+    name: 'Ricardo Alves',
+    email: 'ricardo.alves@sistema.gov.br',
+    passwordHash: '$2b$12$placeholderHashForMockUser8xxxxxxxxxxxxxxxxxxxxxxxxxx',
+    role: UserRole.leitor,
+    units: [],
+    active: true,
+    lastLogin: new Date('2026-02-19T07:30:00'),
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-02-19'),
   },
@@ -572,7 +603,7 @@ const AUDIT_LOGS_REC00129: MockAuditLog[] = [
     id: 'ev1',
     recordId: 'REC-00129',
     userId: 'system',
-    user: { id: 'system', name: 'IA (processamento)', roles: [UserRole.analyst] },
+    user: { id: 'system', name: 'IA (processamento)', role: UserRole.analista },
     action: 'Registro marcado como Alerta de IA com score 0.92',
     previousStatus: AnalysisStatus.uploaded,
     nextStatus: AnalysisStatus.flagged_ai,
@@ -583,7 +614,7 @@ const AUDIT_LOGS_REC00129: MockAuditLog[] = [
     id: 'ev2',
     recordId: 'REC-00129',
     userId: 'mock-u2',
-    user: { id: 'mock-u2', name: 'Pedro Rocha', roles: [UserRole.analyst] },
+    user: { id: 'mock-u2', name: 'Pedro Rocha', role: UserRole.analista },
     action: 'Análise iniciada — status alterado para Em Análise Humana',
     previousStatus: AnalysisStatus.flagged_ai,
     nextStatus: AnalysisStatus.under_review,
@@ -594,7 +625,7 @@ const AUDIT_LOGS_REC00129: MockAuditLog[] = [
     id: 'ev3',
     recordId: 'REC-00129',
     userId: 'mock-u2',
-    user: { id: 'mock-u2', name: 'Pedro Rocha', roles: [UserRole.analyst] },
+    user: { id: 'mock-u2', name: 'Pedro Rocha', role: UserRole.analista },
     action: 'Alteração Confirmada',
     previousStatus: AnalysisStatus.under_review,
     nextStatus: AnalysisStatus.confirmed_human,
@@ -605,7 +636,7 @@ const AUDIT_LOGS_REC00129: MockAuditLog[] = [
     id: 'ev4',
     recordId: 'REC-00129',
     userId: 'mock-u1',
-    user: { id: 'mock-u1', name: 'Ana Silva', roles: [UserRole.supervisor, UserRole.admin] },
+    user: { id: 'mock-u1', name: 'Ana Silva', role: UserRole.admin },
     action: 'Editou texto canônico',
     previousStatus: null,
     nextStatus: null,
@@ -620,7 +651,7 @@ const AUDIT_LOGS_REC00128: MockAuditLog[] = [
     id: 'ev5',
     recordId: 'REC-00128',
     userId: 'system',
-    user: { id: 'system', name: 'IA (processamento)', roles: [UserRole.analyst] },
+    user: { id: 'system', name: 'IA (processamento)', role: UserRole.analista },
     action: 'Registro marcado como Alerta de IA com score 0.97',
     previousStatus: AnalysisStatus.uploaded,
     nextStatus: AnalysisStatus.flagged_ai,
@@ -631,7 +662,7 @@ const AUDIT_LOGS_REC00128: MockAuditLog[] = [
     id: 'ev6',
     recordId: 'REC-00128',
     userId: 'mock-u6',
-    user: { id: 'mock-u6', name: 'Juliana Neves', roles: [UserRole.analyst] },
+    user: { id: 'mock-u6', name: 'Juliana Neves', role: UserRole.analista },
     action: 'Alteração Confirmada',
     previousStatus: AnalysisStatus.flagged_ai,
     nextStatus: AnalysisStatus.confirmed_human,
@@ -642,7 +673,7 @@ const AUDIT_LOGS_REC00128: MockAuditLog[] = [
     id: 'ev7',
     recordId: 'REC-00128',
     userId: 'mock-u1',
-    user: { id: 'mock-u1', name: 'Ana Silva', roles: [UserRole.supervisor, UserRole.admin] },
+    user: { id: 'mock-u1', name: 'Ana Silva', role: UserRole.admin },
     action: 'Aprovação definitiva',
     previousStatus: AnalysisStatus.confirmed_human,
     nextStatus: AnalysisStatus.approved,
@@ -1018,13 +1049,13 @@ export const MOCK_RECORDS: MockRecord[] = [
     userComments: null,
     archivedAt: new Date('2026-02-17T14:00:00'),
     archivedById: 'mock-u1',
-    archivedBy: { id: 'mock-u1', name: 'Ana Silva', roles: [UserRole.supervisor, UserRole.admin] },
+    archivedBy: { id: 'mock-u1', name: 'Ana Silva', role: UserRole.admin },
     auditLogs: [
       {
         id: 'ev8',
         recordId: 'REC-00120',
         userId: 'mock-u1',
-        user: { id: 'mock-u1', name: 'Ana Silva', roles: [UserRole.supervisor, UserRole.admin] },
+        user: { id: 'mock-u1', name: 'Ana Silva', role: UserRole.admin },
         action: 'Registro arquivado',
         previousStatus: AnalysisStatus.confirmed_human,
         nextStatus: null,

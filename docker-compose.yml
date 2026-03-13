@@ -1,27 +1,21 @@
 services:
-  postgres:
-    image: postgres:16-alpine
+  # Azure Cosmos DB Emulator for local development
+  # Docs: https://learn.microsoft.com/en-us/azure/cosmos-db/how-to-develop-emulator
+  cosmos-emulator:
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:latest
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      - AZURE_COSMOS_EMULATOR_PARTITION_COUNT=10
+      - AZURE_COSMOS_EMULATOR_ENABLE_DATA_PERSISTENCE=true
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "8081:8081"   # HTTPS endpoint
+      - "10250:10250" # Direct mode
+      - "10251:10251"
+      - "10252:10252"
+      - "10253:10253"
+      - "10254:10254"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - cosmos-data:/tmp/cosmos/appdata
 
 volumes:
-  pgdata:
+  cosmos-data:

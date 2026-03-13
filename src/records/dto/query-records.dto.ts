@@ -1,7 +1,7 @@
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { AnalysisStatus, RetentionStatus, VisitorType } from '@/generated/prisma/enums';
+import { AnalysisStatus, RetentionStatus, VisitorType } from '@/common/constants/enums';
 
 export class QueryRecordsDto {
   @ApiPropertyOptional({

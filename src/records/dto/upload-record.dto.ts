@@ -7,7 +7,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { VisitorType } from '@/generated/prisma/enums';
+import { VisitorType } from '@/common/constants/enums';
 
 /**
  * DTO for the multipart/form-data upload endpoint (POST /records/upload).

@@ -2,7 +2,7 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { JwtPayload } from '../decorators/current-user.decorator';
-import { UserRole } from '@/generated/prisma/enums';
+import { UserRole, hasMinRole } from '@/common/constants/enums';
 import { Request } from 'express';
 
 @Injectable()
@@ -19,7 +19,10 @@ export class RolesGuard implements CanActivate {
     if (!required || required.length === 0) return true;
 
     const { user } = ctx.switchToHttp().getRequest<Request & { user: JwtPayload }>();
-    const hasRole = required.some((role) => user?.roles?.includes(role));
+
+    // Hierarchy check: user must have at least the minimum required role level
+    const userRole = user?.role as UserRole;
+    const hasRole = required.some((role) => hasMinRole(userRole, role));
 
     if (!hasRole) {
       throw new ForbiddenException('Acesso negado: permissão insuficiente.');

@@ -7,12 +7,15 @@ import * as Joi from 'joi';
  * Optional vars have safe defaults.
  */
 export const envValidationSchema = Joi.object({
-  // ── Required ──────────────────────────────────────────────────────────────
+  // ── Azure Cosmos DB ───────────────────────────────────────────────────────
 
-  /** PostgreSQL connection string. Required. */
-  DATABASE_URL: Joi.string().uri().required().messages({
-    'any.required': 'DATABASE_URL is required (PostgreSQL connection string)',
+  COSMOS_ENDPOINT: Joi.string().uri().optional().allow('').messages({
+    'string.uri': 'COSMOS_ENDPOINT must be a valid URI',
   }),
+  COSMOS_KEY: Joi.string().optional().allow(''),
+  COSMOS_DATABASE: Joi.string().default('senappen'),
+
+  // ── JWT ───────────────────────────────────────────────────────────────────
 
   /** Secret key for signing JWT tokens. Required. */
   JWT_SECRET: Joi.string().min(16).required().messages({
@@ -38,11 +41,13 @@ export const envValidationSchema = Joi.object({
   AZURE_STORAGE_CONNECTION_STRING: Joi.string().optional().allow(''),
   AZURE_STORAGE_CONTAINER: Joi.string().optional().allow('').default('videos'),
 
-  // ── Redis / BullMQ ────────────────────────────────────────────────────────
+  // ── Azure Service Bus (optional — falls back to mock in dev) ──────────────
 
-  REDIS_URL: Joi.string().uri().optional().allow(''),
-  REDIS_HOST: Joi.string().hostname().default('localhost'),
-  REDIS_PORT: Joi.number().port().default(6379),
+  SERVICE_BUS_CONNECTION_STRING: Joi.string().optional().allow(''),
+
+  // ── Azure Key Vault (optional — falls back to .env) ──────────────────────
+
+  KEY_VAULT_URL: Joi.string().uri().optional().allow(''),
 
   // ── Worker ────────────────────────────────────────────────────────────────
 

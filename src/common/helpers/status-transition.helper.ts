@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { AnalysisStatus } from '@/generated/prisma/enums';
+import { AnalysisStatus } from '@/common/constants/enums';
 
 /**
  * Valid status transitions for the record lifecycle.
@@ -9,16 +9,16 @@ import { AnalysisStatus } from '@/generated/prisma/enums';
  *  confirmed_human → approved | rejected_supervisor
  */
 const ALLOWED_TRANSITIONS: Record<string, AnalysisStatus[]> = {
-  uploaded: ['processing_ai'],
-  processing_ai: ['clean', 'flagged_ai'],
-  flagged_ai: ['under_review'],
-  under_review: ['confirmed_human', 'rejected_human'],
-  confirmed_human: ['approved', 'rejected_supervisor'],
+  [AnalysisStatus.uploaded]: [AnalysisStatus.processing_ai],
+  [AnalysisStatus.processing_ai]: [AnalysisStatus.clean, AnalysisStatus.flagged_ai],
+  [AnalysisStatus.flagged_ai]: [AnalysisStatus.under_review],
+  [AnalysisStatus.under_review]: [AnalysisStatus.confirmed_human, AnalysisStatus.rejected_human],
+  [AnalysisStatus.confirmed_human]: [AnalysisStatus.approved, AnalysisStatus.rejected_supervisor],
   // Terminal states — no outgoing transitions
-  clean: [],
-  rejected_human: [],
-  approved: [],
-  rejected_supervisor: [],
+  [AnalysisStatus.clean]: [],
+  [AnalysisStatus.rejected_human]: [],
+  [AnalysisStatus.approved]: [],
+  [AnalysisStatus.rejected_supervisor]: [],
 };
 
 /**

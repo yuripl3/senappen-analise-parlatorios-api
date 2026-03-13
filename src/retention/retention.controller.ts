@@ -12,7 +12,7 @@ import { RolesGuard } from '@/auth/guards/roles.guard';
 import { Roles } from '@/auth/decorators/roles.decorator';
 import { CurrentUser } from '@/auth/decorators/current-user.decorator';
 import type { JwtPayload } from '@/auth/decorators/current-user.decorator';
-import { UserRole } from '@/generated/prisma/enums';
+import { UserRole } from '@/common/constants/enums';
 
 @ApiTags('retention')
 @ApiBearerAuth()

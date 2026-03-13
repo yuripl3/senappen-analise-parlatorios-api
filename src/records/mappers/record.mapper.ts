@@ -1,9 +1,9 @@
 /**
- * Transforms Prisma Record objects (with included relations) into
- * the flat, FE-compatible shape consumed by the React frontend.
+ * Transforms Cosmos DB record documents into the flat, FE-compatible
+ * shape consumed by the React frontend.
  */
 
-import { VisitorType, RetentionStatus, AnalysisStatus, UserRole } from '@/generated/prisma/enums';
+import { VisitorType, RetentionStatus, AnalysisStatus, UserRole } from '@/common/constants/enums';
 import type { MockAuditLog, MockRecord } from '@/mock/mock-data';
 
 // ─── Date formatting ──────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ type RawAuditLog =
       id: string;
       recordId: string | null;
       userId: string;
-      user: { id: string; name: string; roles: string[] | readonly string[] };
+      user: { id: string; name: string; role: string };
       action: string;
       notes?: string | null;
       createdAt: Date;
@@ -64,13 +64,13 @@ export function mapAuditLog(log: RawAuditLog) {
     id: log.id,
     recordId: log.recordId ?? undefined,
     user: log.user.name,
-    userRole: (log.user.roles[0] as UserRole) ?? UserRole.analyst,
+    userRole: ((log.user as any).role as UserRole) ?? UserRole.analista,
     action: log.notes ? log.action + ' — ' + log.notes : log.action,
     timestamp: formatBrDate(log.createdAt),
   };
 }
 
-// ─── Record input type (matches Prisma findMany/findUnique with includes) ─────
+// ─── Record input type (matches Cosmos DB doc shape after toRawRecord) ────────
 
 type RawRecord = {
   id: string;
@@ -92,7 +92,7 @@ type RawRecord = {
   transcription: unknown;
   canonicalAnalysis: unknown;
   archivedAt: Date | null;
-  archivedBy?: { id: string; name: string; roles?: string[] | readonly string[] } | null;
+  archivedBy?: { id: string; name: string; role?: string } | null;
   auditLogs?: RawAuditLog[];
 };
 
@@ -123,7 +123,7 @@ export function mapRecord(r: RawRecord) {
     videoUrl: r.blobUrl ? `/records/${r.id}/stream` : undefined,
     archivedAt: r.archivedAt ? formatBrDateOnly(r.archivedAt) : undefined,
     archivedBy: r.archivedBy
-      ? `${r.archivedBy.name} (${r.archivedBy.roles?.[0] ?? 'staff'})`
+      ? `${r.archivedBy.name} (${r.archivedBy.role ?? 'staff'})`
       : undefined,
   };
 }

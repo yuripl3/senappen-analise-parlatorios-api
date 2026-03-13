@@ -1,10 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { PrismaService } from '@/database/prisma.service';
-import { AnalysisStatus, RetentionStatus, VisitorType } from '@/generated/prisma/enums';
-import { Prisma } from '@/generated/prisma/client';
+import { CosmosService } from '@/database/cosmos.service';
+import { AnalysisStatus, RetentionStatus, VisitorType } from '@/common/constants/enums';
 import { CreateRecordDto } from './dto/create-record.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { QueryRecordsDto } from './dto/query-records.dto';
@@ -14,7 +14,7 @@ import { assertValidTransition } from '@/common/helpers/status-transition.helper
 import { MOCK_RECORDS, MOCK_USER_MAP } from '@/mock/mock-data';
 import { mapMockRecord, mapMockRecordDetail, mapRecord, mapRecordDetail } from './mappers/record.mapper';
 import { StorageService } from '@/storage/storage.service';
-import { QueueService } from '@/worker/queue.service';
+import { ServiceBusService } from '@/worker/servicebus.service';
 
 @Injectable()
 export class RecordsService {
@@ -22,10 +22,10 @@ export class RecordsService {
   private readonly useMockData: boolean;
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly cosmos: CosmosService,
     private readonly config: ConfigService,
     private readonly storageService: StorageService,
-    private readonly queueService: QueueService,
+    private readonly serviceBus: ServiceBusService,
   ) {
     this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
   }
@@ -42,10 +42,10 @@ export class RecordsService {
       from,
       to,
     } = query;
-    const skip = (page - 1) * limit;
 
     // ── Mock mode ──────────────────────────────────────────────────────────
     if (this.useMockData) {
+      const skip = (page - 1) * limit;
       let items = MOCK_RECORDS.filter((r) => {
         if (status && r.analysisStatus !== status) return false;
         if (retentionStatus && r.retentionStatus !== retentionStatus) return false;
@@ -62,39 +62,57 @@ export class RecordsService {
       };
     }
 
-    // ── DB mode ────────────────────────────────────────────────────────────
-    const where: Prisma.RecordWhereInput = {
-      ...(status && { analysisStatus: status }),
-      ...(retentionStatus && { retentionStatus }),
-      ...(visitorType && { visitorType }),
-      ...(unit && { unit: { contains: unit, mode: Prisma.QueryMode.insensitive } }),
-      ...(uploadedById && { uploadedById }),
-      ...(from || to
-        ? {
-            recordedAt: {
-              ...(from && { gte: new Date(from) }),
-              ...(to && { lte: new Date(to) }),
-            },
-          }
-        : {}),
-    };
+    // ── Cosmos DB mode ─────────────────────────────────────────────────────
+    const conditions: string[] = [];
+    const parameters: { name: string; value: string | number | boolean }[] = [];
 
-    const [total, items] = await this.prisma.$transaction([
-      this.prisma.record.count({ where }),
-      this.prisma.record.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { recordedAt: 'desc' },
-        include: {
-          uploadedBy: { select: { id: true, name: true } },
-          archivedBy: { select: { id: true, name: true, roles: true } },
-        },
-      }),
-    ]);
+    if (status) {
+      conditions.push('c.analysisStatus = @status');
+      parameters.push({ name: '@status', value: status });
+    }
+    if (retentionStatus) {
+      conditions.push('c.retentionStatus = @retentionStatus');
+      parameters.push({ name: '@retentionStatus', value: retentionStatus });
+    }
+    if (visitorType) {
+      conditions.push('c.visitorType = @visitorType');
+      parameters.push({ name: '@visitorType', value: visitorType });
+    }
+    if (unit) {
+      conditions.push('CONTAINS(LOWER(c.unit), @unit)');
+      parameters.push({ name: '@unit', value: unit.toLowerCase() });
+    }
+    if (uploadedById) {
+      conditions.push('c.uploadedById = @uploadedById');
+      parameters.push({ name: '@uploadedById', value: uploadedById });
+    }
+    if (from) {
+      conditions.push('c.recordedAt >= @from');
+      parameters.push({ name: '@from', value: new Date(from).toISOString() });
+    }
+    if (to) {
+      conditions.push('c.recordedAt <= @to');
+      parameters.push({ name: '@to', value: new Date(to).toISOString() });
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Count
+    const { resources: countResult } = await this.cosmos.records.items.query({
+      query: `SELECT VALUE COUNT(1) FROM c ${whereClause}`,
+      parameters,
+    }).fetchAll();
+    const total = countResult[0] ?? 0;
+
+    // Paginated query using OFFSET/LIMIT
+    const skip = (page - 1) * limit;
+    const { resources: items } = await this.cosmos.records.items.query({
+      query: `SELECT * FROM c ${whereClause} ORDER BY c.recordedAt DESC OFFSET @skip LIMIT @limit`,
+      parameters: [...parameters, { name: '@skip', value: skip }, { name: '@limit', value: limit }],
+    }).fetchAll();
 
     return {
-      data: items.map((r) => mapRecord(r as Parameters<typeof mapRecord>[0])),
+      data: items.map((r: any) => mapRecord(this.toRawRecord(r))),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -105,11 +123,12 @@ export class RecordsService {
       const record = MOCK_RECORDS.find((r) => r.id === id);
       return record?.blobUrl ?? null;
     }
-    const record = await this.prisma.record.findUnique({
-      where: { id },
-      select: { blobUrl: true },
-    });
-    return record?.blobUrl ?? null;
+    try {
+      const { resource } = await this.cosmos.records.item(id, id).read();
+      return resource?.blobUrl ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async findOne(id: string) {
@@ -120,33 +139,56 @@ export class RecordsService {
       return mapMockRecordDetail(record);
     }
 
-    // ── DB mode ────────────────────────────────────────────────────────────
-    const record = await this.prisma.record.findUnique({
-      where: { id },
-      include: {
-        uploadedBy: { select: { id: true, name: true } },
-        archivedBy: { select: { id: true, name: true, roles: true } },
-        auditLogs: {
-          orderBy: { createdAt: 'asc' },
-          include: { user: { select: { id: true, name: true, roles: true } } },
-        },
-      },
-    });
-
+    // ── Cosmos DB mode ─────────────────────────────────────────────────────
+    const { resource: record } = await this.cosmos.records.item(id, id).read();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
-    return mapRecordDetail(record as Parameters<typeof mapRecordDetail>[0]);
+
+    // Fetch audit logs for this record
+    const { resources: auditLogs } = await this.cosmos.auditLogs.items.query({
+      query: 'SELECT * FROM c WHERE c.recordId = @recordId ORDER BY c.createdAt ASC',
+      parameters: [{ name: '@recordId', value: id }],
+    }).fetchAll();
+
+    return mapRecordDetail(this.toRawRecordWithDetail(record, auditLogs));
   }
 
-  create(dto: CreateRecordDto, uploadedById: string) {
-    return this.prisma.record.create({
-      data: {
-        ...dto,
-        recordedAt: new Date(dto.recordedAt),
-        mediaAvailable: dto.mediaAvailable ?? false,
-        uploadedById,
-        analysisStatus: AnalysisStatus.uploaded,
-      },
-    });
+  async create(dto: CreateRecordDto, uploadedById: string) {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const uploaderName = await this.getUserName(uploadedById);
+
+    const doc = {
+      id,
+      ...dto,
+      recordedAt: new Date(dto.recordedAt).toISOString(),
+      mediaAvailable: dto.mediaAvailable ?? false,
+      uploadedById,
+      uploadedBy: { id: uploadedById, name: uploaderName },
+      analysisStatus: AnalysisStatus.uploaded,
+      retentionStatus: RetentionStatus.retention_standard,
+      aiScore: null,
+      analystId: null,
+      analystDecision: null,
+      analystJustification: null,
+      analysisConfirmedAt: null,
+      supervisorId: null,
+      supervisorDecision: null,
+      supervisorJustification: null,
+      supervisorDecidedAt: null,
+      transcription: null,
+      canonicalAnalysis: null,
+      userComments: null,
+      blobUrl: null,
+      archivedAt: null,
+      archivedById: null,
+      archivedBy: null,
+      uploadedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const { resource } = await this.cosmos.records.items.create(doc);
+    return resource;
   }
 
   /** Handles multipart/form-data upload: saves file via StorageService, creates record. */
@@ -227,61 +269,92 @@ export class RecordsService {
       );
     }
 
-    return this.prisma.record.create({
-      data: {
-        ...dto,
-        recordedAt: new Date(dto.recordedAt),
-        mediaAvailable: !!file,
-        blobUrl,
-        uploadedById,
-        analysisStatus: AnalysisStatus.uploaded,
-      },
-    }).then(async (record) => {
-      // Enqueue transcription job (fire-and-forget)
-      await this.queueService.enqueueTranscription({ recordId: record.id, blobUrl });
-      return record;
-    });
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const uploaderName = await this.getUserName(uploadedById);
+
+    const doc = {
+      id,
+      ...dto,
+      recordedAt: new Date(dto.recordedAt).toISOString(),
+      mediaAvailable: !!file,
+      blobUrl,
+      uploadedById,
+      uploadedBy: { id: uploadedById, name: uploaderName },
+      analysisStatus: AnalysisStatus.uploaded,
+      retentionStatus: RetentionStatus.retention_standard,
+      aiScore: null,
+      analystId: null,
+      analystDecision: null,
+      analystJustification: null,
+      analysisConfirmedAt: null,
+      supervisorId: null,
+      supervisorDecision: null,
+      supervisorJustification: null,
+      supervisorDecidedAt: null,
+      transcription: null,
+      canonicalAnalysis: null,
+      userComments: null,
+      archivedAt: null,
+      archivedById: null,
+      archivedBy: null,
+      uploadedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const { resource: record } = await this.cosmos.records.items.create(doc);
+
+    // Enqueue transcription job (fire-and-forget)
+    await this.serviceBus.enqueueTranscription({ recordId: id, blobUrl });
+
+    return record;
   }
 
   async updateStatus(id: string, dto: UpdateStatusDto, actorId: string) {
-    const record = await this.prisma.record.findUnique({ where: { id } });
+    const { resource: record } = await this.cosmos.records.item(id, id).read();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
 
     assertValidTransition(record.analysisStatus, dto.status);
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.record.update({
-        where: { id },
-        data: {
-          analysisStatus: dto.status,
-          ...(dto.analystDecision && { analystDecision: dto.analystDecision }),
-          ...(dto.justification &&
-            (dto.status === AnalysisStatus.confirmed_human ||
-              dto.status === AnalysisStatus.rejected_human) && {
-              analystJustification: dto.justification,
-              analysisConfirmedAt: new Date(),
-              analystId: actorId,
-            }),
-          ...(dto.justification &&
-            (dto.status === AnalysisStatus.approved ||
-              dto.status === AnalysisStatus.rejected_supervisor) && {
-              supervisorJustification: dto.justification,
-              supervisorDecidedAt: new Date(),
-              supervisorId: actorId,
-            }),
-        },
-      }),
-      this.prisma.auditLog.create({
-        data: {
-          recordId: id,
-          userId: actorId,
-          action: `status_transition`,
-          previousStatus: record.analysisStatus,
-          nextStatus: dto.status,
-          notes: dto.notes,
-        },
-      }),
-    ]);
+    const now = new Date().toISOString();
+    const updates: Record<string, unknown> = {
+      analysisStatus: dto.status,
+      updatedAt: now,
+    };
+
+    if (dto.analystDecision) {
+      updates.analystDecision = dto.analystDecision;
+    }
+    if (dto.justification &&
+      (dto.status === AnalysisStatus.confirmed_human || dto.status === AnalysisStatus.rejected_human)) {
+      updates.analystJustification = dto.justification;
+      updates.analysisConfirmedAt = now;
+      updates.analystId = actorId;
+    }
+    if (dto.justification &&
+      (dto.status === AnalysisStatus.approved || dto.status === AnalysisStatus.rejected_supervisor)) {
+      updates.supervisorJustification = dto.justification;
+      updates.supervisorDecidedAt = now;
+      updates.supervisorId = actorId;
+    }
+
+    // Update record
+    const updatedDoc = { ...record, ...updates };
+    const { resource: updated } = await this.cosmos.records.item(id, id).replace(updatedDoc);
+
+    // Write audit log
+    await this.cosmos.auditLogs.items.create({
+      id: crypto.randomUUID(),
+      recordId: id,
+      userId: actorId,
+      user: { id: actorId, name: await this.getUserName(actorId), role: await this.getUserRole(actorId) },
+      action: 'status_transition',
+      previousStatus: record.analysisStatus,
+      nextStatus: dto.status,
+      notes: dto.notes ?? null,
+      createdAt: now,
+    });
 
     return updated;
   }
@@ -289,53 +362,66 @@ export class RecordsService {
   // ── Archive / Restore ──────────────────────────────────────────────────────
 
   async archive(id: string, actorId: string) {
-    const record = await this.prisma.record.findUnique({ where: { id } });
+    const { resource: record } = await this.cosmos.records.item(id, id).read();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.record.update({
-        where: { id },
-        data: {
-          retentionStatus: RetentionStatus.archived,
-          archivedAt: new Date(),
-          archivedById: actorId,
-        },
-      }),
-      this.prisma.auditLog.create({
-        data: {
-          recordId: id,
-          userId: actorId,
-          action: 'archive',
-          notes: 'Record archived',
-        },
-      }),
-    ]);
+    const now = new Date().toISOString();
+    const archiverName = await this.getUserName(actorId);
+    const archiverRole = await this.getUserRole(actorId);
+
+    const updatedDoc = {
+      ...record,
+      retentionStatus: RetentionStatus.archived,
+      archivedAt: now,
+      archivedById: actorId,
+      archivedBy: { id: actorId, name: archiverName, role: archiverRole },
+      updatedAt: now,
+    };
+
+    const { resource: updated } = await this.cosmos.records.item(id, id).replace(updatedDoc);
+
+    await this.cosmos.auditLogs.items.create({
+      id: crypto.randomUUID(),
+      recordId: id,
+      userId: actorId,
+      user: { id: actorId, name: archiverName, role: archiverRole },
+      action: 'archive',
+      previousStatus: null,
+      nextStatus: null,
+      notes: 'Record archived',
+      createdAt: now,
+    });
 
     return updated;
   }
 
   async restore(id: string, actorId: string) {
-    const record = await this.prisma.record.findUnique({ where: { id } });
+    const { resource: record } = await this.cosmos.records.item(id, id).read();
     if (!record) throw new NotFoundException(`Record ${id} not found`);
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.record.update({
-        where: { id },
-        data: {
-          retentionStatus: RetentionStatus.retention_standard,
-          archivedAt: null,
-          archivedById: null,
-        },
-      }),
-      this.prisma.auditLog.create({
-        data: {
-          recordId: id,
-          userId: actorId,
-          action: 'restore',
-          notes: 'Record restored from archive',
-        },
-      }),
-    ]);
+    const now = new Date().toISOString();
+    const updatedDoc = {
+      ...record,
+      retentionStatus: RetentionStatus.retention_standard,
+      archivedAt: null,
+      archivedById: null,
+      archivedBy: null,
+      updatedAt: now,
+    };
+
+    const { resource: updated } = await this.cosmos.records.item(id, id).replace(updatedDoc);
+
+    await this.cosmos.auditLogs.items.create({
+      id: crypto.randomUUID(),
+      recordId: id,
+      userId: actorId,
+      user: { id: actorId, name: await this.getUserName(actorId), role: await this.getUserRole(actorId) },
+      action: 'restore',
+      previousStatus: null,
+      nextStatus: null,
+      notes: 'Record restored from archive',
+      createdAt: now,
+    });
 
     return updated;
   }
@@ -355,14 +441,13 @@ export class RecordsService {
   // ── Audit log ──────────────────────────────────────────────────────────────
 
   async getAudit(id: string) {
-    const exists = await this.prisma.record.findUnique({ where: { id }, select: { id: true } });
-    if (!exists) throw new NotFoundException(`Record ${id} not found`);
+    const { resource } = await this.cosmos.records.item(id, id).read();
+    if (!resource) throw new NotFoundException(`Record ${id} not found`);
 
-    const logs = await this.prisma.auditLog.findMany({
-      where: { recordId: id },
-      orderBy: { createdAt: 'asc' },
-      include: { user: { select: { id: true, name: true, roles: true } } },
-    });
+    const { resources: logs } = await this.cosmos.auditLogs.items.query({
+      query: 'SELECT * FROM c WHERE c.recordId = @recordId ORDER BY c.createdAt ASC',
+      parameters: [{ name: '@recordId', value: id }],
+    }).fetchAll();
 
     return logs;
   }
@@ -374,15 +459,74 @@ export class RecordsService {
       return { id, userComments: comments };
     }
 
-    const exists = await this.prisma.record.findUnique({ where: { id }, select: { id: true } });
-    if (!exists) throw new NotFoundException(`Record ${id} not found`);
+    const { resource: record } = await this.cosmos.records.item(id, id).read();
+    if (!record) throw new NotFoundException(`Record ${id} not found`);
 
-    const updated = await this.prisma.record.update({
-      where: { id },
-      data: { userComments: comments as any },
-      select: { id: true, userComments: true },
-    });
+    const updatedDoc = { ...record, userComments: comments, updatedAt: new Date().toISOString() };
+    const { resource: updated } = await this.cosmos.records.item(id, id).replace(updatedDoc);
 
-    return updated;
+    return { id: updated.id, userComments: updated.userComments };
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────────
+
+  private async getUserName(userId: string): Promise<string> {
+    try {
+      const { resource } = await this.cosmos.users.item(userId, userId).read();
+      return resource?.name ?? 'Unknown';
+    } catch {
+      return 'Unknown';
+    }
+  }
+
+  private async getUserRole(userId: string): Promise<string> {
+    try {
+      const { resource } = await this.cosmos.users.item(userId, userId).read();
+      return resource?.role ?? 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  /** Convert Cosmos DB document to the shape expected by record.mapper.ts */
+  private toRawRecord(doc: any) {
+    return {
+      id: doc.id,
+      detaineeName: doc.detaineeName,
+      detaineeCode: doc.detaineeCode ?? null,
+      visitorName: doc.visitorName,
+      visitorType: doc.visitorType,
+      unit: doc.unit,
+      vivencia: doc.vivencia ?? null,
+      equipment: doc.equipment,
+      blobUrl: doc.blobUrl ?? null,
+      mediaAvailable: doc.mediaAvailable ?? false,
+      recordedAt: new Date(doc.recordedAt),
+      uploadedAt: new Date(doc.uploadedAt ?? doc.createdAt),
+      uploadedBy: doc.uploadedBy ?? { id: doc.uploadedById, name: 'Unknown' },
+      analysisStatus: doc.analysisStatus,
+      retentionStatus: doc.retentionStatus,
+      aiScore: doc.aiScore ?? null,
+      transcription: doc.transcription ?? null,
+      canonicalAnalysis: doc.canonicalAnalysis ?? null,
+      archivedAt: doc.archivedAt ? new Date(doc.archivedAt) : null,
+      archivedBy: doc.archivedBy ?? null,
+    };
+  }
+
+  private toRawRecordWithDetail(doc: any, auditLogs: any[]) {
+    return {
+      ...this.toRawRecord(doc),
+      userComments: doc.userComments ?? null,
+      auditLogs: auditLogs.map((log: any) => ({
+        id: log.id,
+        recordId: log.recordId ?? null,
+        userId: log.userId,
+        user: log.user ?? { id: log.userId, name: 'Unknown', role: 'unknown' },
+        action: log.action,
+        notes: log.notes ?? null,
+        createdAt: new Date(log.createdAt),
+      })),
+    };
   }
 }

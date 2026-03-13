@@ -1,6 +1,6 @@
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { AnalystDecision, AnalysisStatus } from '@/generated/prisma/enums';
+import { AnalystDecision, AnalysisStatus } from '@/common/constants/enums';
 
 export class UpdateStatusDto {
   @ApiProperty({

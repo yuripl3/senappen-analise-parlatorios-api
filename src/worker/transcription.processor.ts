@@ -1,17 +1,17 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Worker, Job } from 'bullmq';
+import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import ffmpeg from 'fluent-ffmpeg';
-import { PrismaService } from '@/database/prisma.service';
-import { AnalysisStatus } from '@/generated/prisma/enums';
+import { CosmosService } from '@/database/cosmos.service';
+import { AnalysisStatus } from '@/common/constants/enums';
 import { AiService } from './ai.service';
-import { TRANSCRIPTION_QUEUE, TranscribeJobData, createRedisConnection } from './queue';
+import { ServiceBusService, TranscribeJobData } from './servicebus.service';
 
 /**
- * BullMQ Worker for the transcription pipeline.
+ * Transcription pipeline processor.
  *
  * Steps for each job:
  *  1. Set record status to `processing_ai`
@@ -22,49 +22,43 @@ import { TRANSCRIPTION_QUEUE, TranscribeJobData, createRedisConnection } from '.
  *  6. Write audit log
  */
 @Injectable()
-export class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
+export class TranscriptionProcessor implements OnModuleInit {
   private readonly logger = new Logger(TranscriptionProcessor.name);
-  private worker!: Worker;
   private readonly useMockData: boolean;
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly cosmos: CosmosService,
     private readonly config: ConfigService,
     private readonly aiService: AiService,
+    private readonly serviceBus: ServiceBusService,
   ) {
     this.useMockData = this.config.get<string>('USE_MOCK_DATA') === 'true';
   }
 
   onModuleInit() {
-    this.worker = new Worker<TranscribeJobData>(TRANSCRIPTION_QUEUE, (job) => this.process(job), {
-      connection: createRedisConnection(),
-      concurrency: Number(this.config.get('WORKER_CONCURRENCY')) || 5,
-    });
-
-    this.worker.on('completed', (job) =>
-      this.logger.log(`Job ${job.id} completed (record ${job.data.recordId})`),
-    );
-    this.worker.on('failed', (job, err) =>
-      this.logger.error(`Job ${job?.id} failed: ${err.message}`),
-    );
-
+    // Register as message handler for Service Bus
+    this.serviceBus.startReceiving((data) => this.process(data));
     this.logger.log('TranscriptionProcessor started');
-  }
-
-  async onModuleDestroy() {
-    await this.worker.close();
   }
 
   // ─── Core processing ────────────────────────────────────────────────────────
 
-  private async process(job: Job<TranscribeJobData>): Promise<void> {
-    const { recordId, blobUrl } = job.data;
+  private async process(data: TranscribeJobData): Promise<void> {
+    const { recordId, blobUrl } = data;
     this.logger.log(`Processing record ${recordId} (blobUrl: ${blobUrl ?? 'none'})`);
 
     // 1. Mark as processing_ai
-    await this.prisma.record.update({
-      where: { id: recordId },
-      data: { analysisStatus: AnalysisStatus.processing_ai },
+    const { resource: record } = await this.cosmos.records.item(recordId, recordId).read();
+    if (!record) {
+      this.logger.warn(`Record ${recordId} not found — skipping`);
+      return;
+    }
+
+    const now = new Date().toISOString();
+    await this.cosmos.records.item(recordId, recordId).replace({
+      ...record,
+      analysisStatus: AnalysisStatus.processing_ai,
+      updatedAt: now,
     });
 
     let audioBuffer: Buffer | null = null;
@@ -91,40 +85,36 @@ export class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
     const nextStatus = result.aiScore >= 60 ? AnalysisStatus.flagged_ai : AnalysisStatus.clean;
 
     // 5. Persist result and transition status
-    await this.prisma.record.update({
-      where: { id: recordId },
-      data: {
-        analysisStatus: nextStatus,
-        aiScore: result.aiScore,
-        transcription: {
-          lines: result.transcriptionLines,
-          canonicalLines: result.canonicalLines,
-          flaggedSegments: result.flaggedSegments,
-        } as object,
-        canonicalAnalysis: result.canonicalAnalysis as object,
+    const { resource: currentRecord } = await this.cosmos.records.item(recordId, recordId).read();
+    await this.cosmos.records.item(recordId, recordId).replace({
+      ...currentRecord,
+      analysisStatus: nextStatus,
+      aiScore: result.aiScore,
+      transcription: {
+        lines: result.transcriptionLines,
+        canonicalLines: result.canonicalLines,
+        flaggedSegments: result.flaggedSegments,
       },
+      canonicalAnalysis: result.canonicalAnalysis,
+      updatedAt: new Date().toISOString(),
     });
 
     // 6. Audit log
-    await this.prisma.auditLog.create({
-      data: {
-        recordId,
-        userId: 'system',
-        action: 'ai_processing_complete',
-        previousStatus: AnalysisStatus.processing_ai,
-        nextStatus,
-        notes: `aiScore=${result.aiScore}`,
-      },
+    await this.cosmos.auditLogs.items.create({
+      id: crypto.randomUUID(),
+      recordId,
+      userId: 'system',
+      user: { id: 'system', name: 'Sistema', role: 'admin' },
+      action: 'ai_processing_complete',
+      previousStatus: AnalysisStatus.processing_ai,
+      nextStatus,
+      notes: `aiScore=${result.aiScore}`,
+      createdAt: new Date().toISOString(),
     });
   }
 
   // ─── Audio extraction ────────────────────────────────────────────────────────
 
-  /**
-   * Extract mono PCM/MP3 audio from `blobUrl`.
-   * Supports local file paths (`storage/videos/...`).
-   * Returns the extracted audio as a Buffer.
-   */
   private extractAudio(blobUrl: string): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const inputPath = path.isAbsolute(blobUrl) ? blobUrl : path.resolve(process.cwd(), blobUrl);

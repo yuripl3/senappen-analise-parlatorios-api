@@ -1,12 +1,12 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
-import { PrismaService } from './database/prisma.service';
+import { CosmosService } from './database/cosmos.service';
 
 @ApiTags('health')
 @Controller()
 export class AppController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly cosmos: CosmosService) {}
 
   @Get('health')
   @ApiOperation({
@@ -15,7 +15,7 @@ export class AppController {
   })
   @ApiOkResponse({ schema: { example: { status: 'ok', db: 'connected' } } })
   async health() {
-    await this.prisma.$queryRaw`SELECT 1`;
+    await this.cosmos.getDatabase().read();
     return { status: 'ok', db: 'connected' };
   }
 }

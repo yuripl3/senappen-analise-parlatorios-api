@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
-import { PrismaService } from './database/prisma.service';
+import { CosmosService } from './database/cosmos.service';
 
-const mockPrismaService = {
-  $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
+const mockCosmosService = {
+  getDatabase: jest.fn().mockReturnValue({
+    read: jest.fn().mockResolvedValue({ resource: { id: 'senappen' } }),
+  }),
 };
 
 describe('AppController', () => {
@@ -12,7 +14,7 @@ describe('AppController', () => {
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [{ provide: PrismaService, useValue: mockPrismaService }],
+      providers: [{ provide: CosmosService, useValue: mockCosmosService }],
     }).compile();
 
     appController = app.get<AppController>(AppController);
@@ -24,9 +26,9 @@ describe('AppController', () => {
       expect(result).toEqual({ status: 'ok', db: 'connected' });
     });
 
-    it('should call $queryRaw to verify the DB connection', async () => {
+    it('should call getDatabase().read() to verify the DB connection', async () => {
       await appController.health();
-      expect(mockPrismaService.$queryRaw).toHaveBeenCalled();
+      expect(mockCosmosService.getDatabase).toHaveBeenCalled();
     });
   });
 });

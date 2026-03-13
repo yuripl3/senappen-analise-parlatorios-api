@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
-import { PrismaService } from '@/database/prisma.service';
+import { CosmosService } from '@/database/cosmos.service';
 
 // ─── Mock user data ─────────────────────────────────────────────────────────
 const HASHED_PASSWORD = bcrypt.hashSync('validPass123', 10);
@@ -14,7 +14,8 @@ const ACTIVE_USER = {
   name: 'Test User',
   email: 'test@example.com',
   passwordHash: HASHED_PASSWORD,
-  roles: ['analyst'],
+  role: 'analista',
+  units: ['Unidade A'],
   active: true,
   lastLogin: null,
 };
@@ -22,11 +23,18 @@ const ACTIVE_USER = {
 const INACTIVE_USER = { ...ACTIVE_USER, id: 'user-2', active: false };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-function createMockPrisma() {
+function createMockCosmos() {
   return {
-    user: {
-      findUnique: jest.fn(),
-      update: jest.fn().mockResolvedValue(undefined),
+    users: {
+      items: {
+        query: jest.fn().mockReturnValue({
+          fetchAll: jest.fn().mockResolvedValue({ resources: [] }),
+        }),
+      },
+      item: jest.fn().mockReturnValue({
+        read: jest.fn().mockResolvedValue({ resource: null }),
+        replace: jest.fn().mockResolvedValue(undefined),
+      }),
     },
   };
 }
@@ -44,22 +52,37 @@ function createMockConfig() {
   };
 }
 
+/** Helper: make the cosmos query return a specific user */
+function mockQueryReturns(cosmos: ReturnType<typeof createMockCosmos>, user: typeof ACTIVE_USER | null) {
+  cosmos.users.items.query.mockReturnValue({
+    fetchAll: jest.fn().mockResolvedValue({ resources: user ? [user] : [] }),
+  });
+}
+
+/** Helper: make cosmos item().read() return a specific user */
+function mockItemRead(cosmos: ReturnType<typeof createMockCosmos>, user: typeof ACTIVE_USER | null) {
+  cosmos.users.item.mockReturnValue({
+    read: jest.fn().mockResolvedValue({ resource: user }),
+    replace: jest.fn().mockResolvedValue(undefined),
+  });
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 describe('AuthService', () => {
   let service: AuthService;
-  let prisma: ReturnType<typeof createMockPrisma>;
+  let cosmos: ReturnType<typeof createMockCosmos>;
   let jwt: ReturnType<typeof createMockJwt>;
   let config: ReturnType<typeof createMockConfig>;
 
   beforeEach(async () => {
-    prisma = createMockPrisma();
+    cosmos = createMockCosmos();
     jwt = createMockJwt();
     config = createMockConfig();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
-        { provide: PrismaService, useValue: prisma },
+        { provide: CosmosService, useValue: cosmos },
         { provide: JwtService, useValue: jwt },
         { provide: ConfigService, useValue: config },
       ],
@@ -70,7 +93,11 @@ describe('AuthService', () => {
 
   describe('login', () => {
     it('should return tokens and user data for valid credentials', async () => {
-      prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
+      mockQueryReturns(cosmos, ACTIVE_USER);
+      cosmos.users.item.mockReturnValue({
+        read: jest.fn(),
+        replace: jest.fn().mockResolvedValue(undefined),
+      });
       jwt.sign.mockReturnValueOnce('access-token').mockReturnValueOnce('refresh-token');
 
       const result = await service.login({
@@ -84,23 +111,26 @@ describe('AuthService', () => {
         id: 'user-1',
         name: 'Test User',
         email: 'test@example.com',
-        roles: ['analyst'],
+        role: 'analista',
+        units: ['Unidade A'],
       });
     });
 
     it('should update lastLogin on successful login', async () => {
-      prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
+      mockQueryReturns(cosmos, ACTIVE_USER);
+      const replaceFn = jest.fn().mockResolvedValue(undefined);
+      cosmos.users.item.mockReturnValue({ read: jest.fn(), replace: replaceFn });
 
       await service.login({ email: 'test@example.com', password: 'validPass123' });
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { lastLogin: expect.any(Date) },
-      });
+      expect(cosmos.users.item).toHaveBeenCalledWith('user-1', 'user-1');
+      expect(replaceFn).toHaveBeenCalledWith(
+        expect.objectContaining({ lastLogin: expect.any(String) }),
+      );
     });
 
     it('should throw UnauthorizedException for non-existent user', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      mockQueryReturns(cosmos, null);
 
       await expect(service.login({ email: 'nobody@example.com', password: 'any' })).rejects.toThrow(
         UnauthorizedException,
@@ -108,7 +138,7 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for inactive user', async () => {
-      prisma.user.findUnique.mockResolvedValue(INACTIVE_USER);
+      mockQueryReturns(cosmos, INACTIVE_USER);
 
       await expect(
         service.login({ email: 'test@example.com', password: 'validPass123' }),
@@ -116,7 +146,7 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for wrong password', async () => {
-      prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
+      mockQueryReturns(cosmos, ACTIVE_USER);
 
       await expect(
         service.login({ email: 'test@example.com', password: 'wrongPassword' }),
@@ -124,7 +154,11 @@ describe('AuthService', () => {
     });
 
     it('should sign access token with correct payload', async () => {
-      prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
+      mockQueryReturns(cosmos, ACTIVE_USER);
+      cosmos.users.item.mockReturnValue({
+        read: jest.fn(),
+        replace: jest.fn().mockResolvedValue(undefined),
+      });
 
       await service.login({ email: 'test@example.com', password: 'validPass123' });
 
@@ -132,10 +166,10 @@ describe('AuthService', () => {
         sub: 'user-1',
         email: 'test@example.com',
         name: 'Test User',
-        roles: ['analyst'],
+        role: 'analista',
+        units: ['Unidade A'],
       };
 
-      // First call = access token (no extra options), second = refresh token
       expect(jwt.sign).toHaveBeenCalledTimes(2);
       expect(jwt.sign).toHaveBeenNthCalledWith(1, expectedPayload);
       expect(jwt.sign).toHaveBeenNthCalledWith(
@@ -151,13 +185,14 @@ describe('AuthService', () => {
       sub: 'user-1',
       email: 'test@example.com',
       name: 'Test User',
-      roles: ['analyst'],
+      role: 'analista',
+      units: ['Unidade A'],
       type: 'refresh',
     };
 
     it('should return new tokens for valid refresh token', async () => {
       jwt.verify.mockReturnValue(validRefreshPayload);
-      prisma.user.findUnique.mockResolvedValue(ACTIVE_USER);
+      mockItemRead(cosmos, ACTIVE_USER);
       jwt.sign.mockReturnValueOnce('new-access').mockReturnValueOnce('new-refresh');
 
       const result = await service.refresh('valid-refresh-token');
@@ -182,14 +217,14 @@ describe('AuthService', () => {
 
     it('should throw NotFoundException for inactive user', async () => {
       jwt.verify.mockReturnValue(validRefreshPayload);
-      prisma.user.findUnique.mockResolvedValue(INACTIVE_USER);
+      mockItemRead(cosmos, INACTIVE_USER);
 
       await expect(service.refresh('valid-token')).rejects.toThrow(NotFoundException);
     });
 
     it('should throw NotFoundException for non-existent user', async () => {
       jwt.verify.mockReturnValue(validRefreshPayload);
-      prisma.user.findUnique.mockResolvedValue(null);
+      mockItemRead(cosmos, null);
 
       await expect(service.refresh('valid-token')).rejects.toThrow(NotFoundException);
     });

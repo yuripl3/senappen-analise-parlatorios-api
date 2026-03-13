@@ -2,14 +2,14 @@ import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/co
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import { PrismaService } from '@/database/prisma.service';
+import { CosmosService } from '@/database/cosmos.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './decorators/current-user.decorator';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly cosmos: CosmosService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
   ) {}
@@ -17,7 +17,7 @@ export class AuthService {
   // ─── Login ───────────────────────────────────────────────────────────────
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const user = await this.findUserByEmail(dto.email);
 
     if (!user || !user.active) {
       throw new UnauthorizedException('Credenciais inválidas.');
@@ -29,12 +29,10 @@ export class AuthService {
     }
 
     // Update lastLogin
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLogin: new Date() },
-    });
+    const updatedUser = { ...user, lastLogin: new Date().toISOString() };
+    await this.cosmos.users.item(user.id, user.id).replace(updatedUser);
 
-    return this.buildTokenResponse(user);
+    return this.buildTokenResponse(updatedUser);
   }
 
   // ─── Refresh token ────────────────────────────────────────────────────────
@@ -53,7 +51,7 @@ export class AuthService {
       throw new UnauthorizedException('Token inválido.');
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    const { resource: user } = await this.cosmos.users.item(payload.sub, payload.sub).read();
     if (!user || !user.active) {
       throw new NotFoundException('Usuário não encontrado ou inativo.');
     }
@@ -61,14 +59,31 @@ export class AuthService {
     return this.buildTokenResponse(user);
   }
 
-  // ─── Helper ───────────────────────────────────────────────────────────────
+  // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private buildTokenResponse(user: { id: string; name: string; email: string; roles: string[] }) {
+  private async findUserByEmail(email: string) {
+    const { resources } = await this.cosmos.users.items
+      .query({
+        query: 'SELECT * FROM c WHERE c.email = @email',
+        parameters: [{ name: '@email', value: email }],
+      })
+      .fetchAll();
+    return resources[0] ?? null;
+  }
+
+  private buildTokenResponse(user: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    units?: string[];
+  }) {
     const basePayload: JwtPayload = {
       sub: user.id,
       email: user.email,
       name: user.name,
-      roles: user.roles,
+      role: user.role,
+      units: user.units ?? [],
     };
 
     // access_token uses the module-level signOptions (secret + expiresIn: 8h)
@@ -88,7 +103,8 @@ export class AuthService {
         id: user.id,
         name: user.name,
         email: user.email,
-        roles: user.roles,
+        role: user.role,
+        units: user.units ?? [],
       },
     };
   }

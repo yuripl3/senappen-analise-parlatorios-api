@@ -32,7 +32,7 @@ function makeRawAuditLog(overrides: Record<string, unknown> = {}) {
     id: 'log-1',
     recordId: 'rec-1',
     userId: 'user-1',
-    user: { id: 'user-1', name: 'Admin User', roles: ['admin'] },
+    user: { id: 'user-1', name: 'Admin User', role: 'admin' },
     action: 'status_transition',
     notes: null as string | null | undefined,
     createdAt: new Date('2025-01-15T14:30:00Z'),
@@ -68,11 +68,11 @@ describe('record.mapper', () => {
       expect(result.timestamp).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
     });
 
-    it('should default to analyst role when roles array is empty', () => {
-      const log = makeRawAuditLog({ user: { id: 'u', name: 'Test', roles: [] } });
+    it('should default to analista role when role is undefined', () => {
+      const log = makeRawAuditLog({ user: { id: 'u', name: 'Test' } });
       const result = mapAuditLog(log);
 
-      expect(result.userRole).toBe('analyst');
+      expect(result.userRole).toBe('analista');
     });
   });
 
@@ -149,7 +149,7 @@ describe('record.mapper', () => {
     it('should format archivedAt and archivedBy when present', () => {
       const raw = makeRawRecord({
         archivedAt: new Date('2025-02-20T00:00:00Z'),
-        archivedBy: { id: 'u2', name: 'Supervisor', roles: ['supervisor'] },
+        archivedBy: { id: 'u2', name: 'Supervisor', role: 'supervisor' },
       });
       const result = mapRecord(raw as any);
 
